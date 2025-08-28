@@ -39,10 +39,13 @@ class ESP32GPS():
                                 self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
                             if line.startswith(b"$PQTMEPE"):
                                 line = self.gps.pqtmepe_to_gst(line)
+                        line += b"\r\n"
                         try:
-                            line += b"\r\n"
                             if ENABLE_USB_SERIAL_CLIENT:
                                 sys.stdout.write(line)
+                        except Exception as e:
+                            pass
+                        try:
                             if ENABLE_BLUETOOTH and self.ble.is_connected():
                                 self.ble.send(line)
                         except Exception as e:
