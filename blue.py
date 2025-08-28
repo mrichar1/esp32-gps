@@ -35,6 +35,7 @@ class Blue():
         self.ble.irq(self.irq)
         ((self.handle_tx, self.handle_rx),) = self.ble.gatts_register_services((UART_SERVICE,))
         self.connections = set()
+        self.write_callback = None
         self.advertise()
 
     def advertise(self):
@@ -54,8 +55,8 @@ class Blue():
         elif event == IRQ_GATTS_WRITE:
             _, value_handle = data
             value = self.ble.gatts_read(value_handle)
-            if value_handle == self.handle_rx:
-                self.on_write(value)
+            if value_handle == self.handle_rx and self.write_callback:
+                self.write_callback(value)
 
     def is_connected(self):
         return len(self.connections) > 0
@@ -63,7 +64,3 @@ class Blue():
     def send(self, data):
         for conn in self.connections:
             self.ble.gatts_notify(conn, self.handle_tx, data)
-
-    def on_write(self, value):
-        # FIXME: Handle 'incoming' messages (RTCM corrections, commands etc)
-        print("RX", value)
