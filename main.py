@@ -5,8 +5,8 @@ from blue import Blue
 
 # Config variables
 DEVICE_NAME = "ESP32_GPS" # Used as Bluetooth device name
-GPS_TX_PIN = 0 # Connected to GPS RX pin
-GPS_RX_PIN = 1 # Connected to GPS TX pin
+ESP32_TX_PIN = 0 # Connected to GPS RX pin
+ESP32_RX_PIN = 1 # Connected to GPS TX pin
 GPS_BAUD_RATE = 460800 # For LC29HEA - set to 115200 for most other models
 PQTMEPE_TO_GGST = True # Convert PQTMEPE messages to GGST (for accuracy info)
 ENABLE_BLUETOOTH = True # Output via bluetooth device
@@ -17,7 +17,7 @@ class ESP32GPS():
 
     def __init__(self):
         # ESP32 has no clock so store time taken from $GPRMC messages
-        self.gps = GPS(baudrate=GPS_BAUD_RATE, tx=GPS_TX_PIN, rx=GPS_RX_PIN)
+        self.gps = GPS(baudrate=GPS_BAUD_RATE, tx=ESP32_TX_PIN, rx=ESP32_RX_PIN)
         self.ble = None
         if ENABLE_BLUETOOTH:
             self.ble = Blue(name=DEVICE_NAME)
