@@ -43,8 +43,7 @@ class ESP32GPS():
                             line += b"\r\n"
                             if ENABLE_USB_SERIAL_CLIENT:
                                 sys.stdout.write(line)
-                                sys.stdout.flush()
-                            if ENABLE_BLUETOOTH:
+                            if ENABLE_BLUETOOTH and self.ble.is_connected():
                                 self.ble.send(line)
                         except Exception as e:
                             pass
