@@ -1,0 +1,69 @@
+import bluetooth
+from micropython import const
+
+# Set constants
+IRQ_CENTRAL_CONNECT = const(1)
+IRQ_CENTRAL_DISCONNECT = const(2)
+IRQ_GATTS_WRITE = const(3)
+
+FLAG_READ = const(0x0002)
+FLAG_WRITE_NO_RESPONSE = const(0x0004)
+FLAG_WRITE = const(0x0008)
+FLAG_NOTIFY = const(0x0010)
+
+# Nordic UART Service (NUS)
+UART_UUID = bluetooth.UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+UART_TX = (
+    bluetooth.UUID("6E400003-B5A3-F393-E0A9-E50E24DCCA9E"),
+    FLAG_READ | FLAG_NOTIFY,
+)
+UART_RX = (
+    bluetooth.UUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E"),
+    FLAG_WRITE | FLAG_WRITE_NO_RESPONSE,
+)
+UART_SERVICE = (
+    UART_UUID,
+    (UART_TX, UART_RX),
+)
+
+class Blue():
+
+    def __init__(self, name="ESP32_GPS"):
+        self.name = name
+        self.ble = bluetooth.BLE()
+        self.ble.active(True)
+        self.ble.irq(self.irq)
+        ((self.handle_tx, self.handle_rx),) = self.ble.gatts_register_services((UART_SERVICE,))
+        self.connections = set()
+        self.advertise()
+
+    def advertise(self):
+        interval_us = 500000
+        payload = b'\x02\x01\x06' + bytes([len(self.name) + 1, 0x09]) + self.name
+        self.ble.gap_advertise(interval_us, adv_data=payload)
+
+    def irq(self, event, data):
+        # Track connections so we can send notifications.
+        if event == IRQ_CENTRAL_CONNECT:
+            conn, _, _ = data
+            self.connections.add(conn)
+        elif event == IRQ_CENTRAL_DISCONNECT:
+            conn, _, _ = data
+            self.connections.remove(conn)
+            self.advertise()
+        elif event == IRQ_GATTS_WRITE:
+            _, value_handle = data
+            value = self.ble.gatts_read(value_handle)
+            if value_handle == self.handle_rx:
+                self.on_write(value)
+
+    def is_connected(self):
+        return len(self.connections) > 0
+
+    def send(self, data):
+        for conn in self.connections:
+            self.ble.gatts_notify(conn, self.handle_tx, data)
+
+    def on_write(self, value):
+        # FIXME: Handle 'incoming' messages (RTCM corrections, commands etc)
+        print("RX", value)
