@@ -34,14 +34,18 @@ env/bin/rshell -p /dev/ttyACM0
 
 ## Configuration
 
-Modify the config values at the top of `main.py`, then upload to the device:
+1. Copy `defaults/config.defaults.py` to `config.py`, modify as required.
+2. Upload src files to device.
 
 ```
+# Copy default config and modify
+cp config.defaults.py src/config.py
+
 # Access the device
 env/bin/rshell -p /dev/ttyACM0
 
 # Copy code to device
-> cp main.py blue.py gps.py /pyboard
+> cp src/*.py /pyboard
 
 # Reset the device to run the code.
 ```

@@ -2,25 +2,20 @@ import time
 import sys
 from gps import GPS
 from blue import Blue
+from net import Wifi
+import config as cfg
 
-# Config variables
-DEVICE_NAME = "ESP32_GPS" # Used as Bluetooth device name
-ESP32_TX_PIN = 0 # Connected to GPS RX pin
-ESP32_RX_PIN = 1 # Connected to GPS TX pin
-GPS_BAUD_RATE = 460800 # For LC29HEA - set to 115200 for most other models
-PQTMEPE_TO_GGST = True # Convert PQTMEPE messages to GGST (for accuracy info)
-ENABLE_BLUETOOTH = True # Output via bluetooth device
-ENABLE_USB_SERIAL_CLIENT = True # Output via usb serial using sys.stdout as UART(0) is taken by REPL
-
+if cfg.WIFI_SSID and cfg.WIFI_PASSWORD:
+    Wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PASSWORD)
 
 class ESP32GPS():
 
     def __init__(self):
         # ESP32 has no clock so store time taken from $GPRMC messages
-        self.gps = GPS(baudrate=GPS_BAUD_RATE, tx=ESP32_TX_PIN, rx=ESP32_RX_PIN)
+        self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
         self.ble = None
-        if ENABLE_BLUETOOTH:
-            self.ble = Blue(name=DEVICE_NAME)
+        if cfg.ENABLE_BLUETOOTH:
+            self.ble = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
             self.ble.write_callback = self.esp32_write_data
         self.gps_read_data()
@@ -28,12 +23,12 @@ class ESP32GPS():
     def gps_read_data(self):
         buffer = b""
         while True:
-            while ENABLE_USB_SERIAL_CLIENT or (self.ble and self.ble.is_connected()):
+            while cfg.ENABLE_USB_SERIAL_CLIENT or (self.ble and self.ble.is_connected()):
                 buffer += self.gps.uart.read(self.gps.uart.any())
                 while b"\r\n" in buffer:
                     line, buffer = buffer.split(b"\r\n", 1)
                     if line.startswith(b"$"):
-                        if PQTMEPE_TO_GGST:
+                        if cfg.PQTMEPE_TO_GGST:
                             if line.startswith(b"$GNRMC"):
                                 # Extract UTC_TIME (as str) for use in GST sentence creation
                                 self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
@@ -41,12 +36,12 @@ class ESP32GPS():
                                 line = self.gps.pqtmepe_to_gst(line)
                         line += b"\r\n"
                         try:
-                            if ENABLE_USB_SERIAL_CLIENT:
+                            if cfg.ENABLE_USB_SERIAL_CLIENT:
                                 sys.stdout.write(line)
                         except Exception as e:
                             pass
                         try:
-                            if ENABLE_BLUETOOTH and self.ble.is_connected():
+                            if cfg.ENABLE_BLUETOOTH and self.ble.is_connected():
                                 self.ble.send(line)
                         except Exception as e:
                             pass
