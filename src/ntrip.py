@@ -178,17 +178,30 @@ class Caster(Base):
                         if data:
                             # Broadcast to all clients
                             for client in list(self.clients):
+                                # Check client connection by trying to read from it
+                                try:
+                                    data = client.recv(1)
+                                    if not data:
+                                        log(f"[CLIENT] disconnected: {client.getpeername()}")
+                                        self.clients.remove(client)
+                                        client.close()
+                                        continue
+                                except OSError:
+                                    # No client data received (but still connected)
+                                    pass
                                 try:
                                     client.send(data)
                                 except:
+                                    log(f"[CLIENT] disconnected: {client.getpeername()}")
                                     self.clients.remove(client)
                                     client.close()
                         else:
                             # Empty data = server disconnect
+                            log(f"[SERVER] disconnected: {server.getpeername()}")
                             self.servers.remove(server)
                             server.close()
                     except OSError:
-                        # No server data received
+                        # No server data received (but still connected)
                         pass
                     except:
                         self.servers.remove(server)
