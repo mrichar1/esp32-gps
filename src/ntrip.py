@@ -247,39 +247,35 @@ class Caster(Base):
         except OSError:
             return
 
-        try:
-            authorised = False
-            # Check authorisation
-            for line in req.splitlines():
-                if line.startswith("Authorization"):
-                    auth_val = line.split("Basic ", 1)[1]
-                    if auth_val == self.credb64:
-                        authorised = True
+        authorised = False
+        # Check authorisation
+        for line in req.splitlines():
+            if line.startswith("Authorization"):
+                auth_val = line.split("Basic ", 1)[1]
+                if auth_val == self.credb64:
+                    authorised = True
 
-            if req.startswith("GET / "):
-                # Send SOURCETABLE to client, then close
-                log(f"[CLIENT] sourcetable")
-                self.send_headers(conn, sourcetable=True)
-                conn.sendall(self.sourcetable)
+        if req.startswith("GET / "):
+            # Send SOURCETABLE to client, then close
+            log(f"[CLIENT] sourcetable")
+            self.send_headers(conn, sourcetable=True)
+            conn.sendall(self.sourcetable)
+            conn.close()
+        # SOURCETABLE requests can be unauthorised
+        elif not authorised:
+            conn.sendall("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
+            conn.close()
+        elif req.startswith(f"GET /{self.mount} "):
+            # Client downloading RTCM data
+            log(f"[CLIENT] subscribed: {conn.getpeername()}")
+            self.send_headers(conn)
+            self.clients.add(conn)
+        elif req.startswith("POST"):
+            if not req.startswith(f"POST /{self.mount}"):
+                conn.sendall("HTTP/1.1 404 Invalid Mountpoint\r\n\r\n".encode())
                 conn.close()
-            # SOURCETABLE requests can be unauthorised
-            elif not authorised:
-                conn.sendall("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
-                conn.close()
-            elif req.startswith(f"GET /{self.mount} "):
-                # Client downloading RTCM data
-                log(f"[CLIENT] subscribed: {req}")
-                self.send_headers(conn)
-                self.clients.add(conn)
-            elif req.startswith("POST"):
-                if not req.startswith(f"POST /{self.mount}"):
-                    conn.sendall("HTTP/1.1 404 Invalid Mountpoint\r\n\r\n".encode())
-                    conn.close()
-                    return
-                # Server uploading RTCM data
-                log(f"[SERVER] subscribed: {req}")
-                self.send_headers(conn)
-                self.servers.add(conn)
-        except Exception as e:
-            print("E", e)
-            self.socket.close()
+                return
+            # Server uploading RTCM data
+            log(f"[SERVER] subscribed: {conn.getpeername()}")
+            self.send_headers(conn)
+            self.servers.add(conn)
