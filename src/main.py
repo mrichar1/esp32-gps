@@ -1,6 +1,6 @@
 import time
 import sys
-from gps import GPS
+from gps_utils import GPS
 from blue import Blue
 from net import Wifi
 import config as cfg

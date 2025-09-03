@@ -1,14 +1,24 @@
-from machine import UART
+"""Handle GPS serial access via UART, and provide helper functions."""
+import sys
+
+def nmea_checksum(sentence):
+    """Calculate NMEA 0183 checksum for a sentence."""
+    cksum = 0
+    for c in sentence:
+        cksum ^= ord(c)
+    return f"{cksum:02X}"
+
+def log(msg=""):
+    """Write log messages as proprietary NMEA sentences.
+
+    This allows log messages to be intermised with GPS data if using USB serial output.
+    """
+    chksum = nmea_checksum(msg)
+    # sys.stdout is USB serial on ESP32 devices
+    sys.stdout.write(f"$PLOG,{msg}*{chksum}\r\n")
+
 
 class GPS():
-
-    @staticmethod
-    def nmea_checksum(sentence):
-        """Calculate NMEA 0183 checksum for a sentence."""
-        cksum = 0
-        for c in sentence:
-            cksum ^= ord(c)
-        return f"{cksum:02X}"
 
     def pqtmepe_to_gst(self, pqtmepe):
         """
@@ -46,9 +56,11 @@ class GPS():
         alt_err = epe_down
 
         gst_body = f"GPGST,{self.utc_time},{rms:.4f},{maj:.4f},{smin:.4f},{ori:.1f},{lat_err:.4f},{lon_err:.4f},{alt_err:.4f}"
-        cs = self.nmea_checksum(gst_body)
-        return f"${gst_body}*{cs}".encode('UTF-8')
+        cs = nmea_checksum(gst_body)
+        return f"${gst_body}*{cs}".encode()
 
     def __init__(self, baudrate=115200, tx=0, rx=1):
+         # Lazy-import to allow non-class functions to be used without needing UART support
+         from machine import UART
          self.utc_time = "00:00:00"
          self.uart = UART(1,baudrate=baudrate, tx=tx, rx=rx)
