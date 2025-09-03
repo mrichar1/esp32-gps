@@ -94,7 +94,13 @@ class Client(Base):
                     yield data
                 else:
                     # Socket closed
-                    break
+                    log(f"Connection error. Reconnecting...")
+                    try:
+                        self.socket.close()
+                    except:
+                        pass
+                    time.sleep(1)
+                    self.caster_connect()
             except OSError:
                 # Would block / timeout
                 time.sleep(0.01)
