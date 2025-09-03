@@ -209,10 +209,11 @@ class Caster(Base):
 
                 # Small sleep to allow data settling
                 time.sleep(0.01)
+
         except KeyboardInterrupt as e:
-            print(f"EXC: {e}")
+            pass
         except Exception as e:
-            print(f"EXC: {e}")
+            log(f"Caster Error: {e}")
         finally:
             try:
                 self.socket.shutdown(socket.SHUT_WR)
