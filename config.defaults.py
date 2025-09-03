@@ -30,6 +30,8 @@ NTRIP_MOUNT = "ESP32"                    # NTRIP mount (for all modes). Note the
 
 # Caster config
 # NOTE: The caster only currently supports a single server, mounted at NTRIP_MOUNT, so these values can be fixed in the SOURCETABLE
+NTRIP_CASTER_ADDRESS = "0.0.0.0"    # Address to bind the NTRIP caster
+NTRIP_CASTER_PORT = 2101            # Port to bind the NTRIP caster
 NTRIP_BASE_LATITUDE = "56.62"       # Latitude of NTRIP server (mount)
 NTRIP_BASE_LONGITUDE = "-3.94"      # Longitude of NTRIP server (mount)
 NTRIP_COUNTRY_CODE = "GBR"          # Country code of NTRIP server (mount) e.g. United Kingdom = GBR

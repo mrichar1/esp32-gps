@@ -150,9 +150,11 @@ class Caster(Base):
         self.run()
 
     def run(self):
+        addr = getattr(cfg, "NTRIP_CASTER_ADDRESS", "0.0.0.0")
+        port = getattr(cfg, "NTRIP_CASTER_PORT", 2101)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind(("0.0.0.0", self.port))
+        self.socket.bind((addr, port))
         self.socket.listen(5)
         self.socket.setblocking(False)
 
