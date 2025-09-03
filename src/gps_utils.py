@@ -14,8 +14,11 @@ def log(msg=""):
     This allows log messages to be intermised with GPS data if using USB serial output.
     """
     chksum = nmea_checksum(msg)
+    # Escape any literal newlines/special chars in the message
+    msg_str = msg.encode('unicode_escape').decode()
     # sys.stdout is USB serial on ESP32 devices
-    sys.stdout.write(f"$PLOG,{msg}*{chksum}\r\n")
+    sys.stdout.write(f"$PLOG,{msg_str}*{chksum}\r\n")
+    sys.stdout.flush()
 
 
 class GPS():

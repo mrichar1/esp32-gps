@@ -33,6 +33,17 @@ class Base():
         self.request_headers = None
         self.socket = None
 
+    def build_headers(self, method, mount=None):
+        mount = mount or self.mount
+        return (
+            f"{method} /{mount} HTTP/1.1\r\n"
+            "Ntrip-Version: Ntrip/2.0\r\n"
+            f"User-Agent: {self.useragent}\r\n"
+            f"Authorization: Basic {self.credb64}\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n"
+        ).encode()
+
     def caster_connect(self):
         while True:
             try:
@@ -52,7 +63,7 @@ class Base():
 
         # Initial login - check response
         login_ok = False
-        self.socket.sendall(f"{self.request_headers}\r\n".encode())
+        self.socket.sendall(self.request_headers)
         headers = self.socket.recv(2048).split(b"\r\n")
         for line in headers:
             if line.endswith(b"200 OK"):
@@ -67,11 +78,7 @@ class Client(Base):
     def __init__(self, *args, **kwargs):
         """Defaults to centipede NTRIP service"""
         super().__init__(*args, **kwargs)
-        self.request_headers = (
-            f"GET /{self.mount} HTTP/1.1\r\n"
-            f"User-Agent: {self.useragent}\r\n"
-            f"Authorization: Basic {self.credb64}\r\n"
-        )
+        self.request_headers = self.build_headers(method="GET")
         self.caster_connect()
         self.socket.setblocking(False)
 
@@ -98,24 +105,17 @@ class Server(Base):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.request_headers = (
-            f"POST /{self.mount} HTTP/1.1\r\n"
-            f"Host: {self.host}:{self.port}\r\n"
-            f"Ntrip-Version: Ntrip/2.0\r\n"
-            f"User-Agent: {self.useragent}\r\n"
-            f"Authorization: Basic {self.credb64}\r\n"
-            f"Connection: keep-alive\r\n"
-            #f"Transfer-Encoding: chunked\r\n"
-        )
+        self.request_headers = self.build_headers(method="POST", mount=self.mount)
         self.caster_connect()
         self.test_sending()
 
     def test_sending(self):
-        # FIXME: Take out - send/recv data should be called by importing code
+        # FIXME: Take out - send_data should be called by importing code
         while True:
             # FIXME: slight delay to stay under 115200 baud -should be 0.1!
             time.sleep(1)
-            log(f"Sent: {self.send_data(example_data)}")
+            #log("Send")
+            self.send_data(example_data)
 
     def send_data(self, data):
         try:
@@ -209,7 +209,7 @@ class Caster(Base):
             # Some clients seem to always want SOURCETABLE line, even for v2
             proto = "SOURCETABLE"
 
-        headers = (
+        response_headers = (
             f"{proto} 200 OK\r\n"
             "Server: NTRIP ESP32_GPS/2.0\r\n"
             "Ntrip-Version: Ntrip/2.0\r\n"
@@ -217,8 +217,7 @@ class Caster(Base):
             f"Connection: {conn_type}\r\n"
             "\r\n"
         ).encode()
-        log("Sending headers")
-        conn.sendall(headers)
+        conn.sendall(response_headers)
 
     def handle_connection(self, conn):
         try:
