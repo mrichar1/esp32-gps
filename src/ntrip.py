@@ -25,6 +25,7 @@ example_data = bytes([
 class Base():
 
     def __init__(self, host="", port=2101, mount="ESP32", credentials="c:c"):
+        self.name = None
         self.host = host
         self.port = port
         self.mount = mount
@@ -49,17 +50,12 @@ class Base():
             try:
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.socket.settimeout(10)
-                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                # # Keepalive pings - after 5 secs, send a poing every 5 secs 6 times, then drop
-                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
-                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
-                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
-                self.socket.connect((self.host, self.port))
+                log(f"[{self.name}] Connecting to {self.host}:{self.port}...")
+                self.socket.connect(socket.getaddrinfo(self.host, self.port)[0][-1])
                 break
             except OSError as err:
-                log(f"Connection error: {err}")
+                log(f"[{self.name}] Connection error: {err}")
                 time.sleep(3)
-
 
         # Initial login - check response
         login_ok = False
@@ -78,13 +74,12 @@ class Client(Base):
     def __init__(self, *args, **kwargs):
         """Defaults to centipede NTRIP service"""
         super().__init__(*args, **kwargs)
+        self.name = "Client"
+
+    def run(self):
         self.request_headers = self.build_headers(method="GET")
         self.caster_connect()
         self.socket.setblocking(False)
-
-        # FIXME: Take out - send/recv data should be called by importing code
-        for chunk in self.iter_data():
-            log(f"CH: {chunk}")
 
     def iter_data(self):
         while True:
@@ -94,7 +89,7 @@ class Client(Base):
                     yield data
                 else:
                     # Socket closed
-                    log(f"Connection error. Reconnecting...")
+                    log(f"[{self.name}] Connection error. Reconnecting...")
                     try:
                         self.socket.close()
                     except:
@@ -111,35 +106,34 @@ class Server(Base):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.name = "Server"
+
+    def run(self):
         self.request_headers = self.build_headers(method="POST", mount=self.mount)
         self.caster_connect()
-        self.test_sending()
-
-    def test_sending(self):
-        # FIXME: Take out - send_data should be called by importing code
+        # FIXME: Event loop (use machine sleep?)
         while True:
-            # FIXME: slight delay to stay under 115200 baud -should be 0.1!
             time.sleep(1)
-            #log("Send")
-            self.send_data(example_data)
 
     def send_data(self, data):
-        try:
-            self.socket.sendall(data)
-        except Exception as e:
-            log(f"Data send error: {e}. Reconnecting...")
+        if self.socket:
             try:
-                self.socket.close()
-            except:
-                pass
-            time.sleep(1)
-            self.caster_connect()
+                self.socket.sendall(data)
+            except Exception as e:
+                log(f"[{self.name}] Data send error: {e}. Reconnecting...")
+                try:
+                    self.socket.close()
+                except:
+                    pass
+                time.sleep(1)
+                self.caster_connect()
 
 
 class Caster(Base):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.name = "Caster"
         self.clients = set()
         self.servers = set()
         self.sourcetable = (
@@ -150,8 +144,9 @@ class Caster(Base):
         self.run()
 
     def run(self):
-        addr = getattr(cfg, "NTRIP_CASTER_ADDRESS", "0.0.0.0")
-        port = getattr(cfg, "NTRIP_CASTER_PORT", 2101)
+        addr = cfg.NTRIP_CASTER_BIND_ADDRESS or "0.0.0.0"
+        port = cfg.NTRIP_CASTER_BIND_PORT or 2101
+        log(f"[{self.name}] Listening on {addr}:{port}")
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind((addr, port))
@@ -213,7 +208,7 @@ class Caster(Base):
         except KeyboardInterrupt as e:
             pass
         except Exception as e:
-            log(f"Caster Error: {e}")
+            log(f"[{self.name} Exception: {sys.print_exception(e)}")
         finally:
             try:
                 self.socket.shutdown(socket.SHUT_WR)
@@ -222,7 +217,7 @@ class Caster(Base):
                 pass
 
     @staticmethod
-    def send_headers(conn, sourcetable=False):
+    def send_headers(conn, content_type="text/plain", sourcetable=False):
         conn_type = "keep-alive"
         proto = "HTTP/1.1"
         if sourcetable:
@@ -235,15 +230,15 @@ class Caster(Base):
             f"{proto} 200 OK\r\n"
             "Server: NTRIP ESP32_GPS/2.0\r\n"
             "Ntrip-Version: Ntrip/2.0\r\n"
-            "Content-Type: text/plain\r\n"
+            f"Content-Type: {content_type}\r\n"
             f"Connection: {conn_type}\r\n"
             "\r\n"
         ).encode()
         conn.sendall(response_headers)
 
-    def handle_connection(self, conn):
+    def handle_connection(self, conn, addr):
         try:
-            req = conn.recv(1024).decode(errors="ignore")
+            req = conn.recv(1024).decode()
         except OSError:
             return
 
@@ -257,7 +252,7 @@ class Caster(Base):
 
         if req.startswith("GET / "):
             # Send SOURCETABLE to client, then close
-            log(f"[CLIENT] sourcetable")
+            log(f"[{self.name}] Client requested Sourcetable")
             self.send_headers(conn, sourcetable=True)
             conn.sendall(self.sourcetable)
             conn.close()
@@ -267,15 +262,15 @@ class Caster(Base):
             conn.close()
         elif req.startswith(f"GET /{self.mount} "):
             # Client downloading RTCM data
-            log(f"[CLIENT] subscribed: {conn.getpeername()}")
-            self.send_headers(conn)
-            self.clients.add(conn)
+            log(f"[{self.name}] Client subscribed: {addr}")
+            self.send_headers(conn, content_type="gnss/data")
+            self.clients.add((conn, addr))
         elif req.startswith("POST"):
             if not req.startswith(f"POST /{self.mount}"):
                 conn.sendall("HTTP/1.1 404 Invalid Mountpoint\r\n\r\n".encode())
                 conn.close()
                 return
             # Server uploading RTCM data
-            log(f"[SERVER] subscribed: {conn.getpeername()}")
+            log(f"[{self.name}] Server subscribed: {addr}")
             self.send_headers(conn)
-            self.servers.add(conn)
+            self.servers.add((conn, addr))

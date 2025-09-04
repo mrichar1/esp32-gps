@@ -1,12 +1,16 @@
+import _thread
 import time
-import sys
-from gps_utils import GPS
 from blue import Blue
 from net import Wifi
 import config as cfg
+from gps_utils import GPS, log
+import ntrip
 
-if cfg.WIFI_SSID and cfg.WIFI_PASSWORD:
-    Wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PASSWORD)
+try:
+    Wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PSK)
+except AttributeError:
+    # No credentials provided - skip activating wifi
+    pass
 
 class ESP32GPS():
 

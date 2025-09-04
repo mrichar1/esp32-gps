@@ -1,12 +1,14 @@
 """Handle GPS serial access via UART, and provide helper functions."""
 import sys
 
+
 def nmea_checksum(sentence):
     """Calculate NMEA 0183 checksum for a sentence."""
     cksum = 0
     for c in sentence:
         cksum ^= ord(c)
     return f"{cksum:02X}"
+
 
 def log(msg=""):
     """Write log messages as proprietary NMEA sentences.
@@ -18,7 +20,6 @@ def log(msg=""):
     msg_str = msg.encode('unicode_escape').decode()
     # sys.stdout is USB serial on ESP32 devices
     sys.stdout.write(f"$PLOG,{msg_str}*{chksum}\r\n")
-    sys.stdout.flush()
 
 
 class GPS():
