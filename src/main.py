@@ -1,3 +1,4 @@
+import sys
 import _thread
 import time
 from blue import Blue
@@ -22,34 +23,57 @@ class ESP32GPS():
             self.ble = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
             self.ble.write_callback = self.esp32_write_data
+
+        if 'caster' in cfg.NTRIP_MODE:
+            self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
+            _thread.start_new_thread(self.ntrip_caster.run, ())
+        time.sleep(3)
+        if 'server' in cfg.NTRIP_MODE:
+            self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
+            _thread.start_new_thread(self.ntrip_server.run, ())
+        # if 'client' in cfg.NTRIP_MODE:
+        #     _thread.start_new_thread(ntrip.Client, (cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS))
+        #     # for data in ntrip_client.iter_data():
+        #     #     log(data)
+        #     #     self.esp32_write_data(data)
+        # log("HERE")
+
         self.gps_read_data()
 
     def gps_read_data(self):
-        buffer = b""
         while True:
-            while cfg.ENABLE_USB_SERIAL_CLIENT or (self.ble and self.ble.is_connected()):
-                buffer += self.gps.uart.read(self.gps.uart.any())
-                while b"\r\n" in buffer:
-                    line, buffer = buffer.split(b"\r\n", 1)
-                    if line.startswith(b"$"):
-                        if cfg.PQTMEPE_TO_GGST:
-                            if line.startswith(b"$GNRMC"):
-                                # Extract UTC_TIME (as str) for use in GST sentence creation
-                                self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
-                            if line.startswith(b"$PQTMEPE"):
-                                line = self.gps.pqtmepe_to_gst(line)
-                        line += b"\r\n"
-                        try:
-                            if cfg.ENABLE_USB_SERIAL_CLIENT:
-                                sys.stdout.write(line)
-                        except Exception as e:
-                            pass
-                        try:
-                            if cfg.ENABLE_BLUETOOTH and self.ble.is_connected():
-                                self.ble.send(line)
-                        except Exception as e:
-                            pass
-            time.sleep_ms(100)
+            while "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.ble and self.ble.is_connected()):
+                line = self.gps.uart.readline()
+                if not line:
+                    continue
+                # NMEA sentence
+                if line.startswith(b"$") and line.endswith(b"\r\n"):
+                    #line, buffer = buffer.split(b"\r\n", 1)
+                    #if line.startswith(b"$"):
+                    if cfg.PQTMEPE_TO_GGST:
+                        if line.startswith(b"$GNRMC"):
+                            # Extract UTC_TIME (as str) for use in GST sentence creation
+                            self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
+                        if line.startswith(b"$PQTMEPE"):
+                            line = self.gps.pqtmepe_to_gst(line)
+                try:
+                    if cfg.ENABLE_USB_SERIAL_CLIENT:
+                        sys.stdout.write(line)
+                except Exception as e:
+                    pass
+                try:
+                    if False and cfg.ENABLE_BLUETOOTH and self.ble.is_connected(): # FIXME
+                        self.ble.send(line)
+                except Exception as e:
+                    pass
+                try:
+                    if 'server' in cfg.NTRIP_MODE:
+                        self.ntrip_server.send_data(line)
+                except Exception as e:
+                    print("ERR", e)
+                    pass
+            # Wait for one of the outputs to start
+            time.sleep(1)
 
     def esp32_write_data(self, value):
         """Callback to run if device is written to (BLE, Serial)"""

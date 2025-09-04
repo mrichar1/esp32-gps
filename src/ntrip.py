@@ -1,6 +1,7 @@
 """Provide simple NTRIP Client, Server and Caster functionality."""
 
 import socket
+import sys
 import time
 import config as cfg
 from gps_utils import log
@@ -141,7 +142,37 @@ class Caster(Base):
             f"STR;{self.mount};{cfg.NTRIP_COUNTRY_CODE};RTCM3;1005,1006,1033,1077,1087,1097,1107,1127,1230;2;GLO+GAL+QZS+BDS+GPS;NONE;{cfg.NTRIP_COUNTRY_CODE};{cfg.NTRIP_BASE_LATITUDE};{cfg.NTRIP_BASE_LONGITUDE};0;0;NTRIP ESP32_GPS {cfg.GPS_HARDWARE};none;N;N;15200;{cfg.DEVICE_NAME}\r\n"
             "ENDSOURCETABLE\r\n"
         ).encode()
-        self.run()
+
+    @staticmethod
+    def rtcm_parser(buffer=b""):
+        """Process a buffer, extracting RTCM messages.
+        Returns a list of complete messages, and any leftover buffer."""
+        messages = []
+        while True:
+            # Header is min 3 bytes
+            if len(buffer) < 3:
+                break
+
+            if buffer[0] != 0xD3:
+                # buffer doesn't start with RTCM3 preamble, discard a byte and retry
+                buffer = buffer[1:]
+                continue
+
+            length = ((buffer[1] & 0x03) << 8) | buffer[2]
+            total_len = 3 + length + 3  # header + payload + CRC
+
+            if len(buffer) < total_len:
+                break  # incomplete message
+
+            # extract one full message
+            msg = buffer[:total_len]
+            messages.append(msg)
+
+            # keep leftover
+            buffer = buffer[total_len:]
+
+        return messages, buffer
+
 
     def run(self):
         addr = cfg.NTRIP_CASTER_BIND_ADDRESS or "0.0.0.0"
@@ -158,49 +189,59 @@ class Caster(Base):
                 # Accept new connections
                 try:
                     conn, addr = self.socket.accept()
+                    log(f"[{self.name}] Connection from: {addr}")
                     conn.setblocking(False)
-                    self.handle_connection(conn)
+                    self.handle_connection(conn, addr)
                 except OSError:
                     # No new connection
                     pass
-                except:
+                except Exception as e:
+                    log(f"[{self.name}] Exception {sys.print_exception(e)}")
                     self.socket.close()
 
                 # Use a copy of the set to allow removals during iteration
+                buffer = b""
                 for server in list(self.servers):
+                    s_conn, s_addr = server
                     try:
-                        data = server.recv(1024)
-                        if data:
-                            # Broadcast to all clients
-                            for client in list(self.clients):
-                                # Check client connection by trying to read from it
-                                try:
-                                    data = client.recv(1)
-                                    if not data:
-                                        log(f"[CLIENT] disconnected: {client.getpeername()}")
-                                        self.clients.remove(client)
-                                        client.close()
-                                        continue
-                                except OSError:
-                                    # No client data received (but still connected)
-                                    pass
-                                try:
-                                    client.send(data)
-                                except:
-                                    log(f"[CLIENT] disconnected: {client.getpeername()}")
-                                    self.clients.remove(client)
-                                    client.close()
-                        else:
-                            # Empty data = server disconnect
-                            log(f"[SERVER] disconnected: {server.getpeername()}")
-                            self.servers.remove(server)
-                            server.close()
+                        chunk = s_conn.recv(1024)
                     except OSError:
                         # No server data received (but still connected)
-                        pass
-                    except:
+                        continue
+                    except Exception as e:
+                        log(f"[{self.name}] Server error: {sys.print_exception(e)}")
                         self.servers.remove(server)
-                        server.close()
+                        s_conn.close()
+                        continue
+                    if not chunk:
+                        # Empty data = server disconnect
+                        log(f"[{self.name} Server disconnected: {s_addr}")
+                        self.servers.remove(server)
+                        s_conn.close()
+                        continue
+                    buffer += chunk
+                    msgs, buffer = self.rtcm_parser(buffer)
+                    for msg in msgs:
+                        # Broadcast to all clients
+                        for client in list(self.clients):
+                            c_conn, c_addr = client
+                            # Check client connection by trying to read from it
+                            try:
+                                if not c_conn.recv(1):
+                                    log(f"[{self.name}] Client disconnected: {c_addr}")
+                                    self.clients.remove(client)
+                                    c_conn.close()
+                                    continue
+                            except OSError:
+                                # No client data received (but still connected)
+                                pass
+                            try:
+                                c_conn.sendall(msg)
+                            except:
+                                log(f"[{self.name} Client disconnected: {c_addr}")
+                                self.clients.remove(client)
+                                c_conn.close()
+
 
                 # Small sleep to allow data settling
                 time.sleep(0.01)
