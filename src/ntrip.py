@@ -113,9 +113,9 @@ class Server(Base):
     def run(self):
         self.request_headers = self.build_headers(method="POST", mount=self.mount)
         self.caster_connect()
-        # FIXME: Event loop (use machine sleep?)
+        # event loop to keep server running for later send_data calls
         while True:
-            time.sleep(1)
+            time.sleep(0.01)
 
     def send_data(self, data):
         if self.socket:
