@@ -146,33 +146,33 @@ class Caster(Base):
 
     @staticmethod
     def rtcm_parser(buffer=b""):
-        """Process a buffer, extracting RTCM messages.
+        """Process a bytearray buffer, extracting RTCM messages.
         Returns a list of complete messages, and any leftover buffer."""
         messages = []
-        while True:
+        offset = 0
+
+        while offset < len(buffer):
             # Header is min 3 bytes
             if len(buffer) < 3:
                 break
 
             if buffer[0] != 0xD3:
-                # buffer doesn't start with RTCM3 preamble, discard a byte and retry
-                buffer = buffer[1:]
+                # Check for RTCM3 preamble byte
+                offset += 1
                 continue
 
-            length = ((buffer[1] & 0x03) << 8) | buffer[2]
+            length = ((buffer[offset + 1] & 0x03) << 8) | buffer[offset + 2]
             total_len = 3 + length + 3  # header + payload + CRC
 
-            if len(buffer) < total_len:
-                break  # incomplete message
+            if len(buffer) - offset < total_len:
+                break  # Incomplete message
 
-            # extract one full message
-            msg = buffer[:total_len]
-            messages.append(msg)
+            # Append slice of bytearray directly
+            messages.append(buffer[offset:offset + total_len])
+            offset += total_len
 
-            # keep leftover
-            buffer = buffer[total_len:]
-
-        return messages, buffer
+            # Return messages and remaining buffer as slice
+            return messages, buffer[offset:]
 
 
     def run(self):
@@ -187,6 +187,8 @@ class Caster(Base):
 
         try:
             while True:
+                servers_remove = set()
+                clients_remove = set()
                 # Only watch servers if there are clients to send to
                 server_conns = [conn for (conn, _) in self.servers] if self.clients else []
                 client_conns = [conn for (conn, _) in self.clients]
@@ -205,7 +207,7 @@ class Caster(Base):
                     # Server socket
                     elif any(sock is s_conn for (s_conn, _) in self.servers):
                         # Handle server/client sockets
-                        buffer = b""
+                        buffer = bytearray()
                         # Get conn, addr for this server
                         server_tuple = next(((s_conn, s_addr) for (s_conn, s_addr) in self.servers if s_conn is sock), None)
                         if not server_tuple:
@@ -219,26 +221,26 @@ class Caster(Base):
                             continue
                         except Exception as e:
                             log(f"[{self.name}] Server error: {sys.print_exception(e)}")
-                            self.servers.remove((s_conn, s_addr))
+                            servers_remove.add((s_conn, s_addr))
                             s_conn.close()
                             continue
                         if not chunk:
                             # Empty data = server disconnect
                             log(f"[{self.name} Server disconnected: {s_addr}")
-                            self.servers.remove((s_conn, s_addr))
+                            servers_remove.add((s_conn, s_addr))
                             s_conn.close()
                             continue
-                        buffer += chunk
+                        buffer.extend(chunk)
                         msgs, buffer = self.rtcm_parser(buffer)
                         for msg in msgs:
                             # Broadcast to all clients
-                            for client in list(self.clients):
+                            for client in self.clients:
                                 c_conn, c_addr = client
                                 try:
                                     c_conn.sendall(msg)
                                 except:
                                     log(f"[{self.name} Client disconnected: {c_addr}")
-                                    self.clients.remove(client)
+                                    clients_remove.add(client)
                                     c_conn.close()
                     else:
                         # Get conn, addr for this client
@@ -253,10 +255,13 @@ class Caster(Base):
                             pass
                         except:
                             log(f"[{self.name}] Client disconnected: {c_addr}")
-                            self.clients.remove((c_conn, c_addr))
+                            clients_remove.add((c_conn, c_addr))
                             c_conn.close()
                             continue
 
+                # Remove disconnected clients/servers
+                self.servers.difference_update(servers_remove)
+                self.clients.difference_update(clients_remove)
         except KeyboardInterrupt as e:
             pass
         except Exception as e:
