@@ -1,5 +1,6 @@
 """Provide simple NTRIP Client, Server and Caster functionality."""
 
+import select
 import socket
 import sys
 import time
@@ -186,69 +187,75 @@ class Caster(Base):
 
         try:
             while True:
-                # Accept new connections
-                try:
-                    conn, addr = self.socket.accept()
-                    log(f"[{self.name}] Connection from: {addr}")
-                    conn.setblocking(False)
-                    self.handle_connection(conn, addr)
-                except OSError:
-                    # No new connection
-                    pass
-                except Exception as e:
-                    log(f"[{self.name}] Exception {sys.print_exception(e)}")
-                    self.socket.close()
+                # Only watch servers if there are clients to send to
+                server_conns = [conn for (conn, _) in self.servers] if self.clients else []
+                client_conns = [conn for (conn, _) in self.clients]
+                read_list = [self.socket] + server_conns + client_conns
+                write_list = server_conns
 
-                # Use a copy of the set to allow removals during iteration
-                buffer = b""
-                for server in list(self.servers):
-                    s_conn, s_addr = server
-                    try:
-                        chunk = s_conn.recv(1024)
-                    except OSError:
-                        # No server data received (but still connected)
-                        continue
-                    except Exception as e:
-                        log(f"[{self.name}] Server error: {sys.print_exception(e)}")
-                        self.servers.remove(server)
-                        s_conn.close()
-                        continue
-                    if not chunk:
-                        # Empty data = server disconnect
-                        log(f"[{self.name} Server disconnected: {s_addr}")
-                        self.servers.remove(server)
-                        s_conn.close()
-                        continue
-                    buffer += chunk
-                    msgs, buffer = self.rtcm_parser(buffer)
-                    for msg in msgs:
-                        # Broadcast to all clients
-                        for client in list(self.clients):
-                            c_conn, c_addr = client
-                            # Check client connection by trying to read from it
-                            try:
-                                c_conn.sendall(msg)
-                            except:
-                                log(f"[{self.name} Client disconnected: {c_addr}")
-                                self.clients.remove(client)
-                                c_conn.close()
-                # Check client connections 'independently' of server data sending
-                for client in list(self.clients):
-                    c_conn, c_addr = client
-                    try:
-                        if not c_conn.recv(1):
+                readable, writeable, _ = select.select(read_list, write_list, [], 0.1)
+
+                for sock in readable:
+                    # Caster listening socket
+                    if sock is self.socket:
+                        conn, addr = self.socket.accept()
+                        log(f"[{self.name}] Connection from: {addr}")
+                        conn.setblocking(False)
+                        self.handle_connection(conn, addr)
+                    # Server socket
+                    elif any(sock is s_conn for (s_conn, _) in self.servers):
+                        # Handle server/client sockets
+                        buffer = b""
+                        # Get conn, addr for this server
+                        server_tuple = next(((s_conn, s_addr) for (s_conn, s_addr) in self.servers if s_conn is sock), None)
+                        if not server_tuple:
+                            continue
+                        s_conn, s_addr = server_tuple
+
+                        try:
+                            chunk = s_conn.recv(1024)
+                        except OSError:
+                            # No server data received (but still connected)
+                            continue
+                        except Exception as e:
+                            log(f"[{self.name}] Server error: {sys.print_exception(e)}")
+                            self.servers.remove((s_conn, s_addr))
+                            s_conn.close()
+                            continue
+                        if not chunk:
+                            # Empty data = server disconnect
+                            log(f"[{self.name} Server disconnected: {s_addr}")
+                            self.servers.remove((s_conn, s_addr))
+                            s_conn.close()
+                            continue
+                        buffer += chunk
+                        msgs, buffer = self.rtcm_parser(buffer)
+                        for msg in msgs:
+                            # Broadcast to all clients
+                            for client in list(self.clients):
+                                c_conn, c_addr = client
+                                try:
+                                    c_conn.sendall(msg)
+                                except:
+                                    log(f"[{self.name} Client disconnected: {c_addr}")
+                                    self.clients.remove(client)
+                                    c_conn.close()
+                    else:
+                        # Get conn, addr for this client
+                        client_tuple = next(((c_conn, c_addr) for (c_conn, c_addr) in self.clients if c_conn is sock), None)
+                        if not client_tuple:
+                            continue
+                        c_conn, c_addr = client_tuple
+                        try:
+                            c_conn.recv(1)
+                        except OSError:
+                            # No client data received (but still connected)
+                            pass
+                        except:
                             log(f"[{self.name}] Client disconnected: {c_addr}")
-                            self.clients.remove(client)
+                            self.clients.remove((c_conn, c_addr))
                             c_conn.close()
                             continue
-                    except OSError:
-                        # No client data received (but still connected)
-                        pass
-
-
-
-                # Small sleep to allow data settling
-                time.sleep(0.01)
 
         except KeyboardInterrupt as e:
             pass
