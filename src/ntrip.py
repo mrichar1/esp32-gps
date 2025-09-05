@@ -245,11 +245,14 @@ class Caster(Base):
                             for msg in msgs:
                                 try:
                                     c_conn.sendall(msg)
-                                except Exception as e:
-                                    log(f"[{self.name}] Client error: {sys.print_exception(e)}")
+                                except OSError as e:
                                     self.drop_connection(c_conn, c_addr, conn_type="client")
                                     # Skip remaining messages for this client
                                     break
+                                except Exception as e:
+                                    log(f"[{self.name}] Client error: {sys.print_exception(e)}")
+                                    break
+
                     else:
                         # Test if client is still connected
                         c_conn, c_addr = self.clients[sock]
@@ -306,7 +309,10 @@ class Caster(Base):
             f"Connection: {conn_type}\r\n"
             "\r\n"
         ).encode()
-        conn.sendall(response_headers)
+        try:
+            conn.sendall(response_headers)
+        except OSError as e:
+            conn.close()
 
     def handle_connection(self, conn, addr):
         try:
@@ -326,8 +332,12 @@ class Caster(Base):
             # Send SOURCETABLE to client, then close
             log(f"[{self.name}] Client requested Sourcetable")
             self.send_headers(conn, sourcetable=True)
-            conn.sendall(self.sourcetable)
-            conn.close()
+            try:
+                conn.sendall(self.sourcetable)
+            except OSError as e:
+                pass
+            finally:
+                conn.close()
         # SOURCETABLE requests can be unauthorised
         elif not authorised:
             conn.sendall("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
