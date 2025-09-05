@@ -237,7 +237,7 @@ class Caster(Base):
                     c_conn, c_addr = client
                     try:
                         if not c_conn.recv(1):
-                            log(f"[{self.name}] Client disconnected 2: {c_addr}")
+                            log(f"[{self.name}] Client disconnected: {c_addr}")
                             self.clients.remove(client)
                             c_conn.close()
                             continue
