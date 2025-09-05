@@ -72,7 +72,7 @@ You can test NTRIP `Server` & `Caster` again using SW Maps, PyGPSClient or simil
 
 ## NTRIP Support
 
-NOTE: NTRIP services require Wifi to be enabled to send/receive data from external sources.
+NOTE: NTRIP services require Wifi to be enabled to send/receive data from external sources. Yuo can either set the `WIFI` config options to cause a connection to be set up, or manually set up networking in `boot.py`.
 
 This code provide support for `Client`, `Server` and `Caster` NTRIP modes. These can be enabled in parallel by specifying mulitple modes separated by commas for the config option `NTRIP_MODE`.
 
@@ -141,5 +141,7 @@ NOTE: The `Caster` module currently only supports connection from a single `Serv
 ## Testing & Performance
 
 This code has been successfully tested on a C3 Supermini (with a GPS device sending RTCM and NMEA messages) running `Caster` and `Server` NTRIP services, while also streaming location data to SW Maps via Bluetooth, or via USB serial. However in most real-world use these would be split to two separate devices, one Base station and one Rover.
+
+This module writes logs using the proprietary NMEA sentence `$PLOG` - this allows log messages to be interleaved with GPS data on the USB serial output without causing issues with anything consuming the stream.
 
 Any issues, features or comments, especially if tested on other ESP32 or equivalent hardware types, appreciated!
