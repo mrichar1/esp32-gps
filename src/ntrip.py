@@ -227,20 +227,24 @@ class Caster(Base):
                             c_conn, c_addr = client
                             # Check client connection by trying to read from it
                             try:
-                                if not c_conn.recv(1):
-                                    log(f"[{self.name}] Client disconnected: {c_addr}")
-                                    self.clients.remove(client)
-                                    c_conn.close()
-                                    continue
-                            except OSError:
-                                # No client data received (but still connected)
-                                pass
-                            try:
                                 c_conn.sendall(msg)
                             except:
                                 log(f"[{self.name} Client disconnected: {c_addr}")
                                 self.clients.remove(client)
                                 c_conn.close()
+                # Check client connections 'independently' of server data sending
+                for client in list(self.clients):
+                    c_conn, c_addr = client
+                    try:
+                        if not c_conn.recv(1):
+                            log(f"[{self.name}] Client disconnected 2: {c_addr}")
+                            self.clients.remove(client)
+                            c_conn.close()
+                            continue
+                    except OSError:
+                        # No client data received (but still connected)
+                        pass
+
 
 
                 # Small sleep to allow data settling
