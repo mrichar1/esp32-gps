@@ -1,6 +1,6 @@
 import network
 import time
-import log
+from gps_utils import log
 
 class Wifi():
 
