@@ -136,8 +136,10 @@ class Caster(Base):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "Caster"
-        self.clients = set()
-        self.servers = set()
+        self.clients = {}
+        self.servers = {}
+        self.clients_remove = set()
+        self.servers_remove = set()
         self.sourcetable = (
             #f"CAS;ESP32_GPS;2101;ESP32_GPS;None;0;{cfg.NTRIP_COUNTRY_CODE};{cfg.NTRIP_BASE_LATITUDE};{cfg.NTRIP_BASE_LONGITUDE};0.0.0.0;0;https://github.com/mrichar1/esp32-gps\r\n"
             f"STR;{self.mount};{cfg.NTRIP_COUNTRY_CODE};RTCM3;1005,1006,1033,1077,1087,1097,1107,1127,1230;2;GLO+GAL+QZS+BDS+GPS;NONE;{cfg.NTRIP_COUNTRY_CODE};{cfg.NTRIP_BASE_LATITUDE};{cfg.NTRIP_BASE_LONGITUDE};0;0;NTRIP ESP32_GPS {cfg.GPS_HARDWARE};none;N;N;15200;{cfg.DEVICE_NAME}\r\n"
@@ -175,6 +177,19 @@ class Caster(Base):
             return messages, buffer[offset:]
 
 
+    def drop_connection(self, conn, addr, conn_type="client"):
+        # Micropython str has no title() attribute
+        title = conn_type[0].upper() + conn_type[1:]
+        log(f"[{self.name}] {title} disconnected: {addr}")
+        try:
+            conn.close()
+        except:
+            pass
+        if conn_type == "client":
+            self.clients_remove.add(conn)
+        else:
+            self.servers_remove.add(conn)
+
     def run(self):
         addr = cfg.NTRIP_CASTER_BIND_ADDRESS or "0.0.0.0"
         port = cfg.NTRIP_CASTER_BIND_PORT or 2101
@@ -187,11 +202,11 @@ class Caster(Base):
 
         try:
             while True:
-                servers_remove = set()
-                clients_remove = set()
+                self.servers_remove = set()
+                self.clients_remove = set()
                 # Only watch servers if there are clients to send to
-                server_conns = [conn for (conn, _) in self.servers] if self.clients else []
-                client_conns = [conn for (conn, _) in self.clients]
+                server_conns = [conn for conn in self.servers] if self.clients else []
+                client_conns = [conn for conn in self.clients]
                 read_list = [self.socket] + server_conns + client_conns
                 write_list = server_conns
 
@@ -205,15 +220,10 @@ class Caster(Base):
                         conn.setblocking(False)
                         self.handle_connection(conn, addr)
                     # Server socket
-                    elif any(sock is s_conn for (s_conn, _) in self.servers):
+                    elif sock in self.servers:
                         # Handle server/client sockets
                         buffer = bytearray()
-                        # Get conn, addr for this server
-                        server_tuple = next(((s_conn, s_addr) for (s_conn, s_addr) in self.servers if s_conn is sock), None)
-                        if not server_tuple:
-                            continue
-                        s_conn, s_addr = server_tuple
-
+                        s_conn, s_addr = self.servers[sock]
                         try:
                             chunk = s_conn.recv(1024)
                         except OSError:
@@ -221,64 +231,51 @@ class Caster(Base):
                             continue
                         except Exception as e:
                             log(f"[{self.name}] Server error: {sys.print_exception(e)}")
-                            servers_remove.add((s_conn, s_addr))
-                            s_conn.close()
+                            self.drop_connection(s_conn, s_addr, conn_type="server")
                             continue
                         if not chunk:
                             # Empty data = server disconnect
-                            log(f"[{self.name} Server disconnected: {s_addr}")
-                            servers_remove.add((s_conn, s_addr))
-                            s_conn.close()
+                            self.drop_connection(s_conn, s_addr, conn_type="server")
                             continue
                         buffer.extend(chunk)
                         msgs, buffer = self.rtcm_parser(buffer)
-                        for msg in msgs:
-                            # Broadcast to all clients
-                            for client in self.clients:
-                                c_conn, c_addr = client
+                        # Broadcast to all clients
+                        for client in self.clients:
+                            c_conn, c_addr = self.clients[client]
+                            for msg in msgs:
                                 try:
                                     c_conn.sendall(msg)
-                                except:
-                                    log(f"[{self.name} Client disconnected: {c_addr}")
-                                    clients_remove.add(client)
-                                    c_conn.close()
+                                except Exception as e:
+                                    log(f"[{self.name}] Client error: {sys.print_exception(e)}")
+                                    self.drop_connection(c_conn, c_addr, conn_type="client")
+                                    # Skip remaining messages for this client
+                                    break
                     else:
-                        # Get conn, addr for this client
-                        client_tuple = next(((c_conn, c_addr) for (c_conn, c_addr) in self.clients if c_conn is sock), None)
-                        if not client_tuple:
-                            continue
-                        c_conn, c_addr = client_tuple
+                        # Client socket
+                        c_conn, c_addr = self.clients[sock]
                         try:
                             c_conn.recv(1)
                         except OSError:
                             # No client data received (but still connected)
                             pass
                         except:
-                            log(f"[{self.name}] Client disconnected: {c_addr}")
-                            clients_remove.add((c_conn, c_addr))
-                            c_conn.close()
-                            continue
+                            self.drop_connection(c_conn, c_addr, conn_type="client")
                 for sock in writeable:
-                    # Get conn, addr for this server
-                    server_tuple = next(((s_conn, s_addr) for (s_conn, s_addr) in self.servers if s_conn is sock), None)
-                    if not server_tuple:
-                        continue
-                    s_conn, s_addr = server_tuple
+                    s_conn, s_addr = self.servers[sock]
                     try:
                         s_conn.send(b"")
                     except OSError:
                         # No server data read (but still connected)
                         pass
-                    except Exception as e:
-
-                        log(f"[{self.name}] Server disconnected: {s_addr} {sys.print_exception(e)}")
-                        servers_remove.add((s_conn, s_addr))
-                        s_conn.close()
-                        continue
+                    except:
+                        self.drop_connection(s_conn, s_addr, conn_type="server")
 
                 # Remove disconnected clients/servers
-                self.servers.difference_update(servers_remove)
-                self.clients.difference_update(clients_remove)
+                for client in self.clients_remove:
+                    self.clients.pop(client, None)
+                for server in self.servers_remove:
+                    self.servers.pop(server, None)
+
         except KeyboardInterrupt as e:
             pass
         except Exception as e:
@@ -338,7 +335,7 @@ class Caster(Base):
             # Client downloading RTCM data
             log(f"[{self.name}] Client subscribed: {addr}")
             self.send_headers(conn, content_type="gnss/data")
-            self.clients.add((conn, addr))
+            self.clients[conn] = (conn, addr)
         elif req.startswith("POST"):
             if not req.startswith(f"POST /{self.mount}"):
                 conn.sendall("HTTP/1.1 404 Invalid Mountpoint\r\n\r\n".encode())
@@ -347,4 +344,4 @@ class Caster(Base):
             # Server uploading RTCM data
             log(f"[{self.name}] Server subscribed: {addr}")
             self.send_headers(conn)
-            self.servers.add((conn, addr))
+            self.servers[conn] = (conn, addr)
