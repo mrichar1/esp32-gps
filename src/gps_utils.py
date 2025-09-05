@@ -15,6 +15,8 @@ def log(msg=""):
 
     This allows log messages to be intermised with GPS data if using USB serial output.
     """
+
+    msg = str(msg)
     chksum = nmea_checksum(msg)
     # Escape any literal newlines/special chars in the message
     msg_str = msg.encode('unicode_escape').decode()

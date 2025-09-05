@@ -1,4 +1,6 @@
 import bluetooth
+import errno
+import time
 from micropython import const
 
 # Set constants
@@ -34,6 +36,7 @@ class Blue():
         self.ble.active(True)
         self.ble.irq(self.irq)
         ((self.handle_tx, self.handle_rx),) = self.ble.gatts_register_services((UART_SERVICE,))
+        self.ble.gatts_set_buffer(self.handle_tx, 1024, True)
         self.connections = set()
         self.write_callback = None
         self.advertise()
@@ -62,5 +65,16 @@ class Blue():
         return len(self.connections) > 0
 
     def send(self, data):
+        self.ble.gatts_write(self.handle_tx, data)
         for conn in self.connections:
-            self.ble.gatts_notify(conn, self.handle_tx, data)
+            while True:
+                try:
+                    self.ble.gatts_notify(conn, self.handle_tx)
+                    self.buf_len = 0
+                    break
+                except OSError as e:
+                    if e.errno == errno.ENOMEM:
+                        # Retry notify once stack has drained
+                        time.sleep_ms(5)
+                    else:
+                        raise

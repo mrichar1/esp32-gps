@@ -18,11 +18,11 @@ class ESP32GPS():
     def __init__(self):
         # ESP32 has no clock so store time taken from $GPRMC messages
         self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
-        self.ble = None
+        self.blue = None
         if cfg.ENABLE_BLUETOOTH:
-            self.ble = Blue(name=cfg.DEVICE_NAME)
+            self.blue = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
-            self.ble.write_callback = self.esp32_write_data
+            self.blue.write_callback = self.esp32_write_data
 
         if 'caster' in cfg.NTRIP_MODE:
             self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
@@ -60,18 +60,17 @@ class ESP32GPS():
                     if cfg.ENABLE_USB_SERIAL_CLIENT:
                         sys.stdout.write(line)
                 except Exception as e:
-                    pass
+                    log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
                 try:
-                    if False and cfg.ENABLE_BLUETOOTH and self.ble.is_connected(): # FIXME
-                        self.ble.send(line)
+                    if cfg.ENABLE_BLUETOOTH and self.blue.is_connected():
+                        self.blue.send(line)
                 except Exception as e:
-                    pass
+                    log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
                 try:
                     if 'server' in cfg.NTRIP_MODE:
                         self.ntrip_server.send_data(line)
                 except Exception as e:
-                    print("ERR", e)
-                    pass
+                    log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
             # Wait for one of the outputs to start
             time.sleep(1)
 
