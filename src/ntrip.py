@@ -147,35 +147,35 @@ class Caster(Base):
         ).encode()
 
     @staticmethod
-    def rtcm_parser(buffer=b""):
-        """Process a bytearray buffer, extracting RTCM messages.
-        Returns a list of complete messages, and any leftover buffer."""
+    def rtcm_parser(buffer):
+        """
+        Parse a bytearray buffer for RTCM3 messages.
+        Returns a list of slices (start, end) into the buffer,
+        and a trimmed buffer containing only leftover bytes.
+        """
         messages = []
         offset = 0
+        buf_len = len(buffer)
 
-        while offset < len(buffer):
-            # Header is min 3 bytes
-            if len(buffer) < 3:
-                break
-
-            if buffer[0] != 0xD3:
-                # Check for RTCM3 preamble byte
+        while offset + 3 <= buf_len:
+            # Skip until we find RTCM preamble
+            if buffer[offset] != 0xD3:
                 offset += 1
                 continue
 
+            # Read payload length
             length = ((buffer[offset + 1] & 0x03) << 8) | buffer[offset + 2]
-            total_len = 3 + length + 3  # header + payload + CRC
+            total_len = 3 + length + 3
 
-            if len(buffer) - offset < total_len:
-                break  # Incomplete message
+            if offset + total_len > buf_len:
+                # incomplete message
+                break
 
-            # Append slice of bytearray directly
             messages.append(buffer[offset:offset + total_len])
             offset += total_len
 
-            # Return messages and remaining buffer as slice
-            return messages, buffer[offset:]
-
+        # Return messages and remaining buffer
+        return messages, buffer[offset:]
 
     def drop_connection(self, conn, addr, conn_type="client"):
         # Micropython str has no title() attribute
