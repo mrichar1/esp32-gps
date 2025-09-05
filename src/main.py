@@ -38,18 +38,24 @@ class ESP32GPS():
         #     #     self.esp32_write_data(data)
         # log("HERE")
 
-        self.gps_read_data()
+        self.gps_data()
 
-    def gps_read_data(self):
+    def gps_data(self):
+        """Read data from GPS and send to configured outputs.
+
+        All exceptions are caught and logged to avoid crashing the main thread.
+
+        NMEA sentences are sent to USB serial (if enabled), Bluetooth (if enabled) and NTRIP server (if enabled, but only non-NMEA data).
+        """
         while True:
-            while "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.ble and self.ble.is_connected()):
+            while "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
+                isNMEA= False
                 line = self.gps.uart.readline()
                 if not line:
                     continue
-                # NMEA sentence
+                # HAndle NMEA sentences
                 if line.startswith(b"$") and line.endswith(b"\r\n"):
-                    #line, buffer = buffer.split(b"\r\n", 1)
-                    #if line.startswith(b"$"):
+                    isNMEA = True
                     if cfg.PQTMEPE_TO_GGST:
                         if line.startswith(b"$GNRMC"):
                             # Extract UTC_TIME (as str) for use in GST sentence creation
@@ -67,7 +73,8 @@ class ESP32GPS():
                 except Exception as e:
                     log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
                 try:
-                    if 'server' in cfg.NTRIP_MODE:
+                    if not isNMEA and 'server' in cfg.NTRIP_MODE:
+                        # Don't sent NMEA sentences to NTRIP server
                         self.ntrip_server.send_data(line)
                 except Exception as e:
                     log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")

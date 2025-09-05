@@ -70,7 +70,6 @@ class Blue():
             while True:
                 try:
                     self.ble.gatts_notify(conn, self.handle_tx)
-                    self.buf_len = 0
                     break
                 except OSError as e:
                     if e.errno == errno.ENOMEM:

@@ -37,20 +37,23 @@ class GPS():
         $GPGST,hhmmss.sss,rms,maj,smin,ori,lat_err,lon_err,alt_err*CS
         """
 
-        # Strip leading $, trailing checksum
-        body = pqtmepe.strip()[1:]
-        fields, _ = body.split(b"*")
-        parts = fields.split(b",")
+        try:
+            # Strip leading $, trailing checksum
+            body = pqtmepe.strip()[1:]
+            fields, _ = body.split(b"*")
+            parts = fields.split(b",")
 
-        if parts[0] != b"PQTMEPE":
-            # Return a 'null' sentence
+            if parts[0] != b"PQTMEPE":
+                # Return a 'null' sentence
+                return b"\r\n"
+
+            # Extract values
+            epe_north = float(parts[2])
+            epe_east  = float(parts[3])
+            epe_down  = float(parts[4])
+            epe_2d    = float(parts[5])
+        except (IndexError, ValueError):
             return b"\r\n"
-
-        # Extract values
-        epe_north = float(parts[2])
-        epe_east  = float(parts[3])
-        epe_down  = float(parts[4])
-        epe_2d    = float(parts[5])
 
         # Approximate mapping
         rms     = epe_2d
