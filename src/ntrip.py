@@ -258,6 +258,23 @@ class Caster(Base):
                             clients_remove.add((c_conn, c_addr))
                             c_conn.close()
                             continue
+                for sock in writeable:
+                    # Get conn, addr for this server
+                    server_tuple = next(((s_conn, s_addr) for (s_conn, s_addr) in self.servers if s_conn is sock), None)
+                    if not server_tuple:
+                        continue
+                    s_conn, s_addr = server_tuple
+                    try:
+                        s_conn.send(b"")
+                    except OSError:
+                        # No server data read (but still connected)
+                        pass
+                    except Exception as e:
+
+                        log(f"[{self.name}] Server disconnected: {s_addr} {sys.print_exception(e)}")
+                        servers_remove.add((s_conn, s_addr))
+                        s_conn.close()
+                        continue
 
                 # Remove disconnected clients/servers
                 self.servers.difference_update(servers_remove)
