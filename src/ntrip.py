@@ -239,7 +239,7 @@ class Caster(Base):
                             continue
                         buffer.extend(chunk)
                         msgs, buffer = self.rtcm_parser(buffer)
-                        # Broadcast to all clients
+                        # Send to all clients
                         for client in self.clients:
                             c_conn, c_addr = self.clients[client]
                             for msg in msgs:
@@ -251,7 +251,7 @@ class Caster(Base):
                                     # Skip remaining messages for this client
                                     break
                     else:
-                        # Client socket
+                        # Test if client is still connected
                         c_conn, c_addr = self.clients[sock]
                         try:
                             c_conn.recv(1)
@@ -261,6 +261,7 @@ class Caster(Base):
                         except:
                             self.drop_connection(c_conn, c_addr, conn_type="client")
                 for sock in writeable:
+                    # Test if server is still connected
                     s_conn, s_addr = self.servers[sock]
                     try:
                         s_conn.send(b"")
