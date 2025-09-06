@@ -35,12 +35,10 @@ class ESP32GPS():
         if 'server' in cfg.NTRIP_MODE:
             self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
             _thread.start_new_thread(self.ntrip_server.run, ())
-        # if 'client' in cfg.NTRIP_MODE:
-        #     _thread.start_new_thread(ntrip.Client, (cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS))
-        #     # for data in ntrip_client.iter_data():
-        #     #     log(data)
-        #     #     self.esp32_write_data(data)
-        # log("HERE")
+        if 'client' in cfg.NTRIP_MODE:
+            _thread.start_new_thread(ntrip.Client, (cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS))
+            for data in ntrip_client.iter_data():
+                self.esp32_write_data(data)
 
         self.gps_data()
 
