@@ -52,6 +52,43 @@ class ESP32GPS():
             task_gps
         )
 
+    async def read_uart(self):
+        while True:
+            start = self.gps.uart.read(1)
+            if not start:
+                await asyncio.sleep(0)
+                continue
+
+            if start == b"$":
+                # NMEA
+                # Read one line (NMEA terminated \r\n)
+                line = start + self.gps.uart.readline()
+                return line
+
+            elif start == b"\xd3":
+                # RTCM
+                hdr = b""
+                while len(hdr) < 2:
+                    more = self.gps.uart.read(2 - len(hdr))
+                    if more:
+                        hdr += more
+
+                length = ((hdr[0] & 0x03) << 8) | hdr[1]
+
+                # Read payload + CRC safely
+                body = b''
+                while len(body) < length + 3:
+                    more = self.gps.uart.read(length + 3 - len(body))
+                    if more:
+                        body += more
+
+                return b'\xd3' + hdr + body
+
+            else:
+                # Loop until we hit a new byte-marker
+                continue
+
+
     async def ntrip_client_read(self):
         while True:
             async for data in ntrip_client.iter_data():
@@ -67,10 +104,10 @@ class ESP32GPS():
         while True:
             while "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
                 isNMEA= False
-                line = self.gps.uart.readline()
+                line = await self.read_uart()
                 if not line:
                     continue
-                # HAndle NMEA sentences
+                # Handle NMEA sentences
                 if line.startswith(b"$") and line.endswith(b"\r\n"):
                     isNMEA = True
                     if cfg.PQTMEPE_TO_GGST:

@@ -140,14 +140,18 @@ class Server(Base):
                         await self.event.wait()
 
                     while self.queue:
-                        data = self.queue.popleft()
+                        # Get all messages from queue so far
+                        batch = list(self.queue)
+
+                        data = b"".join(batch)
                         try:
                             self.writer.write(data)
                             await self.writer.drain()
+                            # Remove successfully sent lines
+                            for _ in batch:
+                                self.queue.popleft()
                         except Exception as e:
                             log(f"[{self.name}] Data send failed: {e}. Reconnecting...")
-                            # put the data back so it isn’t lost
-                            self.queue.appendleft(data)
                             try:
                                 if self.writer:
                                     self.writer.close()
@@ -176,37 +180,6 @@ class Caster(Base):
             f"STR;{self.mount};{cfg.NTRIP_COUNTRY_CODE};RTCM3;1005,1006,1033,1077,1087,1097,1107,1127,1230;2;GLO+GAL+QZS+BDS+GPS;NONE;{cfg.NTRIP_COUNTRY_CODE};{cfg.NTRIP_BASE_LATITUDE};{cfg.NTRIP_BASE_LONGITUDE};0;0;NTRIP ESP32_GPS {cfg.GPS_HARDWARE};none;N;N;15200;{cfg.DEVICE_NAME}\r\n"
             "ENDSOURCETABLE\r\n"
         ).encode()
-
-    @staticmethod
-    def rtcm_parser(buffer):
-        """
-        Parse a bytearray buffer for RTCM3 messages.
-        Returns a list of slices (start, end) into the buffer,
-        and a trimmed buffer containing only leftover bytes.
-        """
-        messages = []
-        offset = 0
-        buf_len = len(buffer)
-
-        while offset + 3 <= buf_len:
-            # Skip until we find RTCM preamble
-            if buffer[offset] != 0xD3:
-                offset += 1
-                continue
-
-            # Read payload length
-            length = ((buffer[offset + 1] & 0x03) << 8) | buffer[offset + 2]
-            total_len = 3 + length + 3
-
-            if offset + total_len > buf_len:
-                # incomplete message
-                break
-
-            messages.append(buffer[offset:offset + total_len])
-            offset += total_len
-
-        # Return messages and remaining buffer
-        return messages, buffer[offset:]
 
     @staticmethod
     async def send_headers(writer, content_type="text/plain", sourcetable=False):
@@ -299,24 +272,46 @@ class Caster(Base):
             for s_reader, s_writer in list(self.servers.values()):
                 buffer = bytearray()
                 try:
-                    data = await s_reader.read(512)
-                    if not data:
-                        # Empty data = server disconnect
-                        await self.drop_connection(s_writer, conn_type="server")
-                        continue
-                    buffer.extend(data)
-                    # Write to all clients
-                    msgs, buffer = self.rtcm_parser(buffer)
-                    for c_reader, c_writer in self.clients.values():
-                        for msg in msgs:
-                            try:
-                                c_writer.write(msg)
-                                await c_writer.drain()
-                            except:
-                                await self.drop_connection(c_writer)
-                                # Don't send more messages
+                    while True:
+                        data = await s_reader.read(1024)
+                        if not data:
+                            # Empty data = server disconnect
+                            await self.drop_connection(s_writer, conn_type="server")
+                            break
+                        buffer += data
+
+                        # Split into RTCM messages
+                        while True:
+                            # We need at least the 3-byte header
+                            if len(buffer) < 3:
                                 break
-                except:
+                            if buffer[0] != 0xD3:
+                                # Skip ahead to next msg delimiter
+                                buffer = buffer[1:]
+                                continue
+
+                            # Calculate message length
+                            length = ((buffer[1] & 0x03) << 8) | buffer[2]
+                            total_len = 3 + length + 3
+                            # We need the whole message
+                            if len(buffer) < total_len:
+                                break
+
+                            # Extract the message and remaining buffer
+                            msg = buffer[:total_len]
+                            buffer = buffer[total_len:]
+
+                            # Write to all clients
+                            for c_reader, c_writer in self.clients.values():
+                                try:
+                                    c_writer.write(msg)
+                                    await c_writer.drain()
+                                except:
+                                    await self.drop_connection(c_writer)
+                                    # Don't send more messages
+                                    break
+                except Exception as e:
+                    log(f"Exception: {sys.print_exception(e)}")
                     await self.drop_connection(s_writer, conn_type="server")
 
     async def handle_connection(self, reader, writer):
@@ -383,4 +378,4 @@ class Caster(Base):
         asyncio.create_task(self.probe_connections())
 
         log(f"[{self.name}] Listening on {addr}:{port}")
-        await asyncio.start_server(self.handle_connection, addr, port, backlog=10)
+        await asyncio.start_server(self.handle_connection, addr, port)
