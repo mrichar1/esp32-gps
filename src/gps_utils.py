@@ -4,6 +4,7 @@ import sys
 
 def nmea_checksum(sentence):
     """Calculate NMEA 0183 checksum for a sentence."""
+    sentence = sentence.lstrip("$")
     cksum = 0
     for c in sentence:
         cksum ^= ord(c)
@@ -25,6 +26,15 @@ def log(msg=""):
 
 
 class GPS():
+
+    def write_nmea(self, msg):
+        """Write NMEA sentence (adding $ and checksum)."""
+        msg =msg.lstrip("$")
+        if not "*" in msg:
+            chksum = nmea_checksum(msg)
+            msg = f"{msg}*{chksum}"
+        log(f"Sending GPS Command: {msg}")
+        self.uart.write(f"${msg}\r\n")
 
     def pqtmepe_to_gst(self, pqtmepe):
         """

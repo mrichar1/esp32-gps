@@ -5,6 +5,7 @@ GPS_HARDWARE = "F9P"                # Text description of GPS hardware device
 ESP32_TX_PIN = 0                    # Connected to GPS RX pin
 ESP32_RX_PIN = 1                    # Connected to GPS TX pin
 GPS_BAUD_RATE = 115200              # For LC29HEA - set to 115200 for most other models
+GPS_SETUP_COMMANDS = []             # List of NMEA commands (without $ and checksum) to be sent to GPS device on startup.
 
 # NMEA/Data configuration
 PQTMEPE_TO_GGST = False             # Convert PQTMEPE messages to GGST (for accuracy info from Quectel devices)

@@ -18,6 +18,10 @@ class ESP32GPS():
     def __init__(self):
         # ESP32 has no clock so store time taken from $GPRMC messages
         self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
+
+        if cfg.GPS_SETUP_COMMANDS:
+            for cmd in cfg.GPS_SETUP_COMMANDS:
+                self.gps.write_nmea(cmd)
         self.blue = None
         if cfg.ENABLE_BLUETOOTH:
             self.blue = Blue(name=cfg.DEVICE_NAME)

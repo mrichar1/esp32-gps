@@ -8,10 +8,10 @@ Tested with ESP32 C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
 
 (Features in _italics_ are planned).
 
-* (USB) Serial GPS (pass-through)
-* Bluetooth LE Serial GPS
+* (USB) Serial GPS (pass-through).
+* Bluetooth LE Serial GPS.
 * Rewriting of NMEA sentences on-the-fly (e.g. PQTMEPE -> GPGST accuracy sentences).
-* GPS Device Writing (RTCM corrections, _Config commands_ etc)
+* GPS Device Writing (RTCM corrections, Config commands).
 * NTRIP `Client` (for Rover), `Server` (for Base Station) and `Caster` (for Base stations).
 
 ## Device Setup
@@ -69,6 +69,10 @@ You can test GPS NMEA output by doing one of the following (with either `ENABLE_
 * Bluetooth LE: Android - connect Bluetooth device, open SW Maps or equivalent, add Bluetooth LE device by name (default is `ESP32_GPS`) and look for location data.
 
 You can test NTRIP `Server` & `Caster` again using SW Maps, PyGPSClient or similar GPS tool that supports NTRIP data.
+
+## GPS Module Configuration
+
+If your GPS device needs custom commands sent to it, these can be set by adding entries to the list in the `GPS_SETUP_COMMANDS` configuration option. These are applied prior to starting any NTRIP services or reading/writing data to/from the GPS device.
 
 ## NTRIP Support
 
