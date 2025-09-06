@@ -1,5 +1,6 @@
 """Provide simple NTRIP Client, Server and Caster functionality."""
 
+import gc
 import select
 import socket
 import sys
@@ -274,11 +275,16 @@ class Caster(Base):
                     except:
                         self.drop_connection(s_conn, s_addr, conn_type="server")
 
-                # Remove disconnected clients/servers
+                # Remove disconnected clients/servers and garbage collect
+                gc_collect = False
                 for client in self.clients_remove:
                     self.clients.pop(client, None)
+                    gc_collect = True
                 for server in self.servers_remove:
                     self.servers.pop(server, None)
+                    gc_collect = True
+                if gc_collect:
+                    gc.collect()
 
         except KeyboardInterrupt as e:
             pass
@@ -288,6 +294,7 @@ class Caster(Base):
             try:
                 self.socket.shutdown(socket.SHUT_WR)
                 self.socket.close()
+                gc.collect()
             except:
                 pass
 
