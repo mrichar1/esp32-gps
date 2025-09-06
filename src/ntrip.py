@@ -1,10 +1,10 @@
 """Provide simple NTRIP Client, Server and Caster functionality."""
 
+import asyncio
 import gc
-import select
-import socket
 import sys
 import time
+from collections import deque
 import config as cfg
 from gps_utils import log
 
@@ -35,7 +35,11 @@ class Base():
         self.credb64 =  b64encode(credentials.encode('ascii')).decode().strip()
         self.useragent = "NTRIP ESP32_GPS Client/1.0"
         self.request_headers = None
-        self.socket = None
+        self.reader = None
+        self.writer = None
+        # Set a very large max-len as never want to hit it
+        self.queue = deque([], 128)
+        self.event = asyncio.Event()
 
     def build_headers(self, method, mount=None):
         mount = mount or self.mount
@@ -48,13 +52,11 @@ class Base():
             "\r\n"
         ).encode()
 
-    def caster_connect(self):
+    async def caster_connect(self):
         while True:
             try:
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.socket.settimeout(10)
                 log(f"[{self.name}] Connecting to {self.host}:{self.port}...")
-                self.socket.connect(socket.getaddrinfo(self.host, self.port)[0][-1])
+                self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
                 break
             except OSError as err:
                 log(f"[{self.name}] Connection error: {err}")
@@ -62,13 +64,15 @@ class Base():
 
         # Initial login - check response
         login_ok = False
-        self.socket.sendall(self.request_headers)
-        headers = self.socket.recv(2048).split(b"\r\n")
+        self.writer.write(self.request_headers)
+        await self.writer.drain()
+        headers = await self.reader.read(1024)
+        headers = headers.split(b"\r\n")
         for line in headers:
             if line.endswith(b"200 OK"):
                 login_ok = True
         if not login_ok:
-            self.socket.close()
+            self.writer.close()
             raise ValueError(headers)
 
 
@@ -78,31 +82,37 @@ class Client(Base):
         """Defaults to centipede NTRIP service"""
         super().__init__(*args, **kwargs)
         self.name = "Client"
-
-    def run(self):
         self.request_headers = self.build_headers(method="GET")
-        self.caster_connect()
-        self.socket.setblocking(False)
 
-    def iter_data(self):
+    async def iter_data(self):
+        """Read data from caster and yield as requested."""
         while True:
-            try:
-                data = self.socket.recv(128)
-                if data:
-                    yield data
-                else:
-                    # Socket closed
-                    log(f"[{self.name}] Connection error. Reconnecting...")
-                    try:
-                        self.socket.close()
-                    except:
-                        pass
-                    time.sleep(1)
-                    self.caster_connect()
-            except OSError:
-                # Would block / timeout
-                time.sleep(0.01)
-                continue
+            if self.reader:
+                try:
+                    data = await self.reader.read(128)
+                    if data:
+                        yield data
+                    else:
+                        # Stream closed
+                        log(f"[{self.name}] Connection error. Reconnecting...")
+                        try:
+                            self.writer.close()
+                            await self.writer.wait_closed()
+                        except:
+                            pass
+                        await asyncio.sleep(1)
+                        await self.caster_connect()
+                except (OSError, asyncio.IncompleteReadError):
+                    # Would block / timeout
+                    await asyncio.sleep(0.01)
+                    continue
+            else:
+                # Reader not ready yet...
+                await asyncio.sleep(1)
+
+    async def run(self):
+        await self.caster_connect()
+
 
 
 class Server(Base):
@@ -110,26 +120,48 @@ class Server(Base):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "Server"
-
-    def run(self):
         self.request_headers = self.build_headers(method="POST", mount=self.mount)
-        self.caster_connect()
-        # event loop to keep server running for later send_data calls
-        while True:
-            time.sleep(0.01)
 
-    def send_data(self, data):
-        if self.socket:
+    async def send_data(self, data):
+        """Push data to be sent onto the queue."""
+        self.queue.append(data)
+        self.event.set()
+        await asyncio.sleep(0)
+
+    async def run(self):
+        """Connect to caster, then send queued event data in a loop."""
+        while True:
+            await self.caster_connect()
+
             try:
-                self.socket.sendall(data)
-            except Exception as e:
-                log(f"[{self.name}] Data send error: {e}. Reconnecting...")
-                try:
-                    self.socket.close()
-                except:
-                    pass
-                time.sleep(1)
-                self.caster_connect()
+                while True:
+                    while not self.queue:
+                        self.event.clear()
+                        await self.event.wait()
+
+                    while self.queue:
+                        data = self.queue.popleft()
+                        try:
+                            self.writer.write(data)
+                            await self.writer.drain()
+                        except Exception as e:
+                            log(f"[{self.name}] Data send failed: {e}. Reconnecting...")
+                            # put the data back so it isn’t lost
+                            self.queue.appendleft(data)
+                            try:
+                                if self.writer:
+                                    self.writer.close()
+                                    await self.writer.wait_closed()
+                            except Exception:
+                                pass
+                            # Delay before reconnecting
+                            await asyncio.sleep(3)
+                            # End inner loop, triggering reconnect
+                            break
+                    # yield to the event loop
+                    await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                break
 
 
 class Caster(Base):
@@ -139,8 +171,6 @@ class Caster(Base):
         self.name = "Caster"
         self.clients = {}
         self.servers = {}
-        self.clients_remove = set()
-        self.servers_remove = set()
         self.sourcetable = (
             #f"CAS;ESP32_GPS;2101;ESP32_GPS;None;0;{cfg.NTRIP_COUNTRY_CODE};{cfg.NTRIP_BASE_LATITUDE};{cfg.NTRIP_BASE_LONGITUDE};0.0.0.0;0;https://github.com/mrichar1/esp32-gps\r\n"
             f"STR;{self.mount};{cfg.NTRIP_COUNTRY_CODE};RTCM3;1005,1006,1033,1077,1087,1097,1107,1127,1230;2;GLO+GAL+QZS+BDS+GPS;NONE;{cfg.NTRIP_COUNTRY_CODE};{cfg.NTRIP_BASE_LATITUDE};{cfg.NTRIP_BASE_LONGITUDE};0;0;NTRIP ESP32_GPS {cfg.GPS_HARDWARE};none;N;N;15200;{cfg.DEVICE_NAME}\r\n"
@@ -178,128 +208,8 @@ class Caster(Base):
         # Return messages and remaining buffer
         return messages, buffer[offset:]
 
-    def drop_connection(self, conn, addr, conn_type="client"):
-        # Micropython str has no title() attribute
-        title = conn_type[0].upper() + conn_type[1:]
-        log(f"[{self.name}] {title} disconnected: {addr}")
-        try:
-            conn.close()
-        except:
-            pass
-        if conn_type == "client":
-            self.clients_remove.add(conn)
-        else:
-            self.servers_remove.add(conn)
-
-    def run(self):
-        addr = cfg.NTRIP_CASTER_BIND_ADDRESS or "0.0.0.0"
-        port = cfg.NTRIP_CASTER_BIND_PORT or 2101
-        log(f"[{self.name}] Listening on {addr}:{port}")
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind((addr, port))
-        self.socket.listen(5)
-        self.socket.setblocking(False)
-
-        try:
-            while True:
-                self.servers_remove = set()
-                self.clients_remove = set()
-                # Only watch servers if there are clients to send to
-                server_conns = [conn for conn in self.servers] if self.clients else []
-                client_conns = [conn for conn in self.clients]
-                read_list = [self.socket] + server_conns + client_conns
-                write_list = server_conns
-
-                readable, writeable, _ = select.select(read_list, write_list, [], 0.1)
-
-                for sock in readable:
-                    # Caster listening socket
-                    if sock is self.socket:
-                        conn, addr = self.socket.accept()
-                        log(f"[{self.name}] Connection from: {addr}")
-                        conn.setblocking(False)
-                        self.handle_connection(conn, addr)
-                    # Server socket
-                    elif sock in self.servers:
-                        # Handle server/client sockets
-                        buffer = bytearray()
-                        s_conn, s_addr = self.servers[sock]
-                        try:
-                            chunk = s_conn.recv(1024)
-                        except OSError:
-                            # No server data received (but still connected)
-                            continue
-                        except Exception as e:
-                            log(f"[{self.name}] Server error: {sys.print_exception(e)}")
-                            self.drop_connection(s_conn, s_addr, conn_type="server")
-                            continue
-                        if not chunk:
-                            # Empty data = server disconnect
-                            self.drop_connection(s_conn, s_addr, conn_type="server")
-                            continue
-                        buffer.extend(chunk)
-                        msgs, buffer = self.rtcm_parser(buffer)
-                        # Send to all clients
-                        for client in self.clients:
-                            c_conn, c_addr = self.clients[client]
-                            for msg in msgs:
-                                try:
-                                    c_conn.sendall(msg)
-                                except OSError as e:
-                                    self.drop_connection(c_conn, c_addr, conn_type="client")
-                                    # Skip remaining messages for this client
-                                    break
-                                except Exception as e:
-                                    log(f"[{self.name}] Client error: {sys.print_exception(e)}")
-                                    break
-
-                    else:
-                        # Test if client is still connected
-                        c_conn, c_addr = self.clients[sock]
-                        try:
-                            c_conn.recv(1)
-                        except OSError:
-                            # No client data received (but still connected)
-                            pass
-                        except:
-                            self.drop_connection(c_conn, c_addr, conn_type="client")
-                for sock in writeable:
-                    # Test if server is still connected
-                    s_conn, s_addr = self.servers[sock]
-                    try:
-                        s_conn.send(b"")
-                    except OSError:
-                        # No server data read (but still connected)
-                        pass
-                    except:
-                        self.drop_connection(s_conn, s_addr, conn_type="server")
-
-                # Remove disconnected clients/servers and garbage collect
-                gc_collect = False
-                for client in self.clients_remove:
-                    self.clients.pop(client, None)
-                    gc_collect = True
-                for server in self.servers_remove:
-                    self.servers.pop(server, None)
-                    gc_collect = True
-                if gc_collect:
-                    gc.collect()
-
-        except KeyboardInterrupt as e:
-            pass
-        except Exception as e:
-            log(f"[{self.name} Exception: {sys.print_exception(e)}")
-        finally:
-            try:
-                self.socket.shutdown(socket.SHUT_WR)
-                self.socket.close()
-                gc.collect()
-            except:
-                pass
-
     @staticmethod
-    def send_headers(conn, content_type="text/plain", sourcetable=False):
+    async def send_headers(writer, content_type="text/plain", sourcetable=False):
         conn_type = "keep-alive"
         proto = "HTTP/1.1"
         if sourcetable:
@@ -317,13 +227,105 @@ class Caster(Base):
             "\r\n"
         ).encode()
         try:
-            conn.sendall(response_headers)
+            writer.write(response_headers)
+            await writer.drain()
         except OSError as e:
-            conn.close()
+            writer.close()
+            await writer.wait_closed()
 
-    def handle_connection(self, conn, addr):
+    async def drop_connection(self, writer, conn_type="client"):
+        """Close stale connections and remove from the list."""
+
+        conn_dict = self.servers if conn_type == "server" else self.clients
+
+        addr = writer.get_extra_info('peername')
+        title = conn_type[0].upper() + conn_type[1:]
+        log(f"[{self.name}] {title} disconnected: {addr}")
+        conn_dict.pop(writer)
         try:
-            req = conn.recv(1024).decode()
+            writer.close()
+            await writer.wait_closed()
+        except:
+            pass
+
+    async def probe_connections(self):
+        """Probe clients and servers evry 10 seconds to check still connected."""
+
+        while True:
+            # If no servers and no clients, sleep
+            if not self.servers and not self.clients:
+                await asyncio.sleep(10)
+
+            for s_reader, s_writer in list(self.servers.values()):
+                try:
+                    probe = s_writer.write(b"")
+                    await s_writer.drain()
+                except OSError:
+                    # No server data written (but still connected)
+                    pass
+                except Exception as e:
+                    log(f"Exception: {sys.print_exception(e)}")
+                    await self.drop_connection(s_writer, conn_type="server")
+                    try:
+                        s_writer.close()
+                        await s_writer.wait_closed()
+                    except:
+                        pass
+            for c_reader, c_writer in self.clients.values():
+                try:
+                    probe = await c_reader.read(1)
+                except OSError:
+                    # No client data received (but still connected)
+                    pass
+                except:
+                    await self.drop_connection(c_writer)
+                    try:
+                        c_writer.close()
+                        await c_writer.wait_closed()
+                    except:
+                        pass
+
+            gc.collect()
+            # Wait 10 secs
+            await asyncio.sleep(10)
+
+    async def handle_data(self):
+        # Do nothing if no clients or servers connected
+        while True:
+            if not self.servers or not self.clients:
+                await asyncio.sleep(0.1)
+                continue
+
+            for s_reader, s_writer in list(self.servers.values()):
+                buffer = bytearray()
+                try:
+                    data = await s_reader.read(512)
+                    if not data:
+                        # Empty data = server disconnect
+                        await self.drop_connection(s_writer, conn_type="server")
+                        continue
+                    buffer.extend(data)
+                    # Write to all clients
+                    msgs, buffer = self.rtcm_parser(buffer)
+                    for c_reader, c_writer in self.clients.values():
+                        for msg in msgs:
+                            try:
+                                c_writer.write(msg)
+                                await c_writer.drain()
+                            except:
+                                await self.drop_connection(c_writer)
+                                # Don't send more messages
+                                break
+                except:
+                    await self.drop_connection(s_writer, conn_type="server")
+
+    async def handle_connection(self, reader, writer):
+        addr = writer.get_extra_info('peername')
+        log(f"[{self.name}] Connection from: {addr}")
+        try:
+            req = await reader.read(1024)
+            req = req.decode()
+
         except OSError:
             return
 
@@ -334,32 +336,51 @@ class Caster(Base):
                 auth_val = line.split("Basic ", 1)[1]
                 if auth_val == self.credb64:
                     authorised = True
+                else:
+                    log(f"[{self.name}] Authorisation failed: {addr}")
 
         if req.startswith("GET / "):
             # Send SOURCETABLE to client, then close
             log(f"[{self.name}] Client requested Sourcetable")
-            self.send_headers(conn, sourcetable=True)
+            await self.send_headers(writer, sourcetable=True)
             try:
-                conn.sendall(self.sourcetable)
+                writer.write(self.sourcetable)
+                await writer.drain()
             except OSError as e:
                 pass
             finally:
-                conn.close()
+                writer.close()
+                await writer.wait_closed()
         # SOURCETABLE requests can be unauthorised
         elif not authorised:
-            conn.sendall("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
-            conn.close()
+            writer.write("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
         elif req.startswith(f"GET /{self.mount} "):
             # Client downloading RTCM data
             log(f"[{self.name}] Client subscribed: {addr}")
-            self.send_headers(conn, content_type="gnss/data")
-            self.clients[conn] = (conn, addr)
+            await self.send_headers(writer, content_type="gnss/data")
+            self.clients[writer] = (reader, writer)
         elif req.startswith("POST"):
             if not req.startswith(f"POST /{self.mount}"):
-                conn.sendall("HTTP/1.1 404 Invalid Mountpoint\r\n\r\n".encode())
-                conn.close()
+                writer.write("HTTP/1.1 404 Invalid Mountpoint\r\n\r\n".encode())
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
                 return
             # Server uploading RTCM data
             log(f"[{self.name}] Server subscribed: {addr}")
-            self.send_headers(conn)
-            self.servers[conn] = (conn, addr)
+            await self.send_headers(writer)
+            self.servers[writer] = (reader, writer)
+
+    async def run(self):
+        addr = cfg.NTRIP_CASTER_BIND_ADDRESS or "0.0.0.0"
+        port = cfg.NTRIP_CASTER_BIND_PORT or 2101
+
+        # Background tasks
+        asyncio.create_task(self.handle_data())
+        asyncio.create_task(self.probe_connections())
+
+        log(f"[{self.name}] Listening on {addr}:{port}")
+        await asyncio.start_server(self.handle_connection, addr, port, backlog=10)

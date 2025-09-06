@@ -1,5 +1,6 @@
+import asyncio
+import gc
 import sys
-import _thread
 import time
 from blue import Blue
 from net import Wifi
@@ -19,7 +20,9 @@ class ESP32GPS():
         # ESP32 has no clock so store time taken from $GPRMC messages
         self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
 
-        if cfg.GPS_SETUP_COMMANDS:
+
+    async def run(self):
+        if hasattr(cfg, "GPS_SETUP_COMMANDS"):
             for cmd in cfg.GPS_SETUP_COMMANDS:
                 self.gps.write_nmea(cmd)
         self.blue = None
@@ -30,19 +33,31 @@ class ESP32GPS():
 
         if 'caster' in cfg.NTRIP_MODE:
             self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
-            _thread.start_new_thread(self.ntrip_caster.run, ())
-        time.sleep(3)
+            task_cast = asyncio.create_task(self.ntrip_caster.run())
+            # Allow Caster to start before Server/Client
+            await asyncio.sleep(2)
         if 'server' in cfg.NTRIP_MODE:
             self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
-            _thread.start_new_thread(self.ntrip_server.run, ())
+            task_srv = asyncio.create_task(self.ntrip_server.run())
         if 'client' in cfg.NTRIP_MODE:
-            _thread.start_new_thread(ntrip.Client, (cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS))
-            for data in ntrip_client.iter_data():
+            self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
+            task_cli = asyncio.create_task(self.ntrip_client.run())
+            await self.ntrip_client_read()
+
+        task_gps = asyncio.create_task(self.gps_data())
+
+        await asyncio.gather(
+            task_cast,
+            task_srv,
+            task_gps
+        )
+
+    async def ntrip_client_read(self):
+        while True:
+            async for data in ntrip_client.iter_data():
                 self.esp32_write_data(data)
 
-        self.gps_data()
-
-    def gps_data(self):
+    async def gps_data(self):
         """Read data from GPS and send to configured outputs.
 
         All exceptions are caught and logged to avoid crashing the main thread.
@@ -77,11 +92,11 @@ class ESP32GPS():
                 try:
                     if not isNMEA and 'server' in cfg.NTRIP_MODE:
                         # Don't sent NMEA sentences to NTRIP server
-                        self.ntrip_server.send_data(line)
+                        await self.ntrip_server.send_data(line)
                 except Exception as e:
                     log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
             # Wait for one of the outputs to start
-            time.sleep(1)
+            await asyncio.sleep(1)
 
     def esp32_write_data(self, value):
         """Callback to run if device is written to (BLE, Serial)"""
@@ -89,3 +104,4 @@ class ESP32GPS():
 
 if __name__ == "__main__":
     e32gps = ESP32GPS()
+    asyncio.run(e32gps.run())
