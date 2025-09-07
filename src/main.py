@@ -32,15 +32,15 @@ class ESP32GPS():
             self.blue.write_callback = self.esp32_write_data
 
         if 'caster' in cfg.NTRIP_MODE:
-            self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
+            self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
             task_cast = asyncio.create_task(self.ntrip_caster.run())
             # Allow Caster to start before Server/Client
             await asyncio.sleep(2)
         if 'server' in cfg.NTRIP_MODE:
-            self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
+            self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
             task_srv = asyncio.create_task(self.ntrip_server.run())
         if 'client' in cfg.NTRIP_MODE:
-            self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CREDENTIALS)
+            self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
             task_cli = asyncio.create_task(self.ntrip_client.run())
             await self.ntrip_client_read()
 
