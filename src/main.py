@@ -22,49 +22,21 @@ class ESP32GPS():
         self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
         self.irq_event = asyncio.ThreadSafeFlag()
 
-    async def run(self):
-        if hasattr(cfg, "GPS_SETUP_COMMANDS"):
-            for cmd in cfg.GPS_SETUP_COMMANDS:
-                self.gps.write_nmea(cmd)
-        # Set up GPS read irq callback
-        self.gps.uart.irq(self.uart_irq_handler, UART.IRQ_RXIDLE)
-        self.blue = None
-        if cfg.ENABLE_BLUETOOTH:
-            self.blue = Blue(name=cfg.DEVICE_NAME)
-            # Set custom BLE write callback
-            self.blue.write_callback = self.esp32_write_data
 
-        if 'caster' in cfg.NTRIP_MODE:
-            self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
-            task_cast = asyncio.create_task(self.ntrip_caster.run())
-            # Allow Caster to start before Server/Client
-            await asyncio.sleep(2)
-        if 'server' in cfg.NTRIP_MODE:
-            self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
-            task_srv = asyncio.create_task(self.ntrip_server.run())
-        if 'client' in cfg.NTRIP_MODE:
-            self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
-            task_cli = asyncio.create_task(self.ntrip_client.run())
-            await self.ntrip_client_read()
-
-        task_gps = asyncio.create_task(self.gps_data())
-
-        await asyncio.gather(
-            task_cast,
-            task_srv,
-            task_gps
-        )
+    def esp32_write_data(self, value):
+        """Callback to run if device is written to (BLE, Serial)"""
+        self.gps.uart.write(value)
 
     async def ntrip_client_read(self):
         while True:
             async for data in ntrip_client.iter_data():
                 self.esp32_write_data(data)
 
-    def uart_irq_handler(self, u):
+    def uart_read_handler(self, u):
+        """Callback to run if GPS has data ready for reading."""
         # Ignore UART unless there is an output to recv data
         if "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
             self.irq_event.set()
-
 
     async def gps_data(self):
         """Read data from GPS and send to configured outputs.
@@ -107,9 +79,39 @@ class ESP32GPS():
             # Settle
             await asyncio.sleep_ms(1)
 
-    def esp32_write_data(self, value):
-        """Callback to run if device is written to (BLE, Serial)"""
-        self.gps.uart.write(value)
+    async def run(self):
+        if hasattr(cfg, "GPS_SETUP_COMMANDS"):
+            for cmd in cfg.GPS_SETUP_COMMANDS:
+                self.gps.write_nmea(cmd)
+        # Set up GPS read irq callback
+        self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
+        self.blue = None
+        if cfg.ENABLE_BLUETOOTH:
+            self.blue = Blue(name=cfg.DEVICE_NAME)
+            # Set custom BLE write callback
+            self.blue.write_callback = self.esp32_write_data
+
+        if 'caster' in cfg.NTRIP_MODE:
+            self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
+            task_cast = asyncio.create_task(self.ntrip_caster.run())
+            # Allow Caster to start before Server/Client
+            await asyncio.sleep(2)
+        if 'server' in cfg.NTRIP_MODE:
+            self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
+            task_srv = asyncio.create_task(self.ntrip_server.run())
+        if 'client' in cfg.NTRIP_MODE:
+            self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
+            task_cli = asyncio.create_task(self.ntrip_client.run())
+            await self.ntrip_client_read()
+
+        task_gps = asyncio.create_task(self.gps_data())
+
+        await asyncio.gather(
+            task_cast,
+            task_srv,
+            task_gps
+        )
+
 
 if __name__ == "__main__":
     e32gps = ESP32GPS()
