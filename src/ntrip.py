@@ -143,16 +143,10 @@ class Server(Base):
                         await self.event.wait()
 
                     while self.queue:
-                        # Get all messages from queue so far
-                        batch = list(self.queue)
-
-                        data = b"".join(batch)
                         try:
-                            self.writer.write(data)
+                            self.writer.write(self.queue[0])
                             await self.writer.drain()
-                            # Remove successfully sent lines
-                            for _ in batch:
-                                self.queue.popleft()
+                            self.queue.popleft()
                         except Exception as e:
                             log(f"[{self.name}] Data send failed: {e}. Reconnecting...")
                             try:
