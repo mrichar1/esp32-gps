@@ -7,6 +7,8 @@ import time
 from collections import deque
 from gps_utils import log
 
+DEBUG=True
+
 try:
     from ubinascii import b2a_base64 as b64encode
 except ModuleNotFoundError:
@@ -40,8 +42,9 @@ class Base():
         self.request_headers = None
         self.reader = None
         self.writer = None
-        # Set a very large max-len as never want to hit it
-        self.queue = deque([], 128)
+        # Assuming avg RTCM message is 200 bytes, queue around 4096bytes of them
+        # (in usual operation, queue never grows to more than 2 with clients reading from caster)
+        self.queue = deque([], 20)
         self.event = asyncio.Event()
 
     def build_headers(self, method, mount=None):
@@ -101,7 +104,9 @@ class Client(Base):
                         try:
                             self.writer.close()
                             await self.writer.wait_closed()
-                        except:
+                        except Exception as e:
+                            if DEBUG:
+                                sys.print_exception(e)
                             pass
                         await asyncio.sleep(1)
                         await self.caster_connect()
@@ -226,8 +231,9 @@ class Caster():
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except Exception as e:
+                if DEBUG:
+                    sys.print_exception(e)
 
     async def drop_connection(self, mount, writer, conn_type="client"):
         """Close stale connections and remove from the list."""
@@ -253,18 +259,20 @@ class Caster():
         try:
             writer.close()
             await writer.wait_closed()
-        except:
-            pass
+        except Exception as e:
+            if DEBUG:
+                sys.print_exception(e)
         if conn_type == "server":
             # Remove all associated clients and delete mount
             for client in self.mounts[mount]["clients"]:
                 try:
-                    client.write("Mountpoint unavailable. Please try again later.\r\n").encode()
+                    client.write("Mountpoint unavailable. Please try again later.\r\n".encode())
                     client.close()
                     await client.wait_closed()
-                except:
+                except Exception as e:
                     # Client already gone
-                    pass
+                    if DEBUG:
+                        sys.print_exception(e)
             del self.mounts[mount]
 
     async def probe_connections(self):
@@ -290,10 +298,12 @@ class Caster():
                         try:
                             s_writer.close()
                             await s_writer.wait_closed()
-                        except:
-                            pass
+                        except Exception as e:
+                            if DEBUG:
+                                sys.print_exception(e)
                     except Exception as e:
-                        sys.print_exception(e)
+                        if DEBUG:
+                            sys.print_exception(e)
                 for c_writer, c_reader in list(conns["clients"].items()):
                     try:
                         probe = await c_reader.read(128)
@@ -302,15 +312,17 @@ class Caster():
                             try:
                                 c_writer.close()
                                 await c_writer.wait_closed()
-                            except:
-                                pass
+                            except Exception as e:
+                                if DEBUG:
+                                    sys.print_exception(e)
                     except OSError:
                         await self.drop_connection(mount, c_writer)
                         try:
                             c_writer.close()
                             await c_writer.wait_closed()
-                        except:
-                            pass
+                        except Exception as e:
+                            if DEBUG:
+                                sys.print_exception(e)
 
             gc.collect()
             await asyncio.sleep(probe_cycle)
@@ -353,13 +365,15 @@ class Caster():
                     for c_writer, c_reader in conns["clients"].items():
                         try:
                             c_writer.write(msg)
-                            await c_writer.drain()
                         except OSError:
                             await self.drop_connection(mount, c_writer)
                             # Don't send more messages
                             break
+                    # Yield to allow write drains
+                    await asyncio.sleep(0)
         except Exception as e:
-            log(f"Exception: {sys.print_exception(e)}")
+            if DEBUG:
+                sys.print_exception(e)
             await self.drop_connection(mount, s_writer, conn_type="server")
         finally:            # Clean up task tracking so run() can restart if needed
             self.server_tasks.pop((mount, s_writer), None)

@@ -19,6 +19,10 @@ class ESP32GPS():
     def __init__(self):
         # ESP32 has no clock so store time taken from $GPRMC messages
         self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
+        self.buf = bytearray()
+        self.buf_len = 0
+        self.start_idx = 0
+
 
 
     async def run(self):
@@ -54,40 +58,69 @@ class ESP32GPS():
 
     async def read_uart(self):
         while True:
-            start = self.gps.uart.read(1)
-            if not start:
+            data = self.gps.uart.read()
+            if data:
+                mlen = len(data)
+                # Protect against OOM in case of unuusally large messages
+                if self.buf_len + mlen > 2048:
+                    # Overflow - skip old bytes
+                    self.start_idx = 0
+                    self.buf_len = 0
+                self.buf[self.buf_len:self.buf_len+mlen] = data
+                self.buf_len += mlen
+            else:
                 await asyncio.sleep(0)
                 continue
 
-            if start == b"$":
-                # NMEA
-                # Read one line (NMEA terminated \r\n)
-                line = start + self.gps.uart.readline()
-                return line
+            while self.start_idx < self.buf_len:
+                b0 = self.buf[self.start_idx]
+                remaining = self.buf_len - self.start_idx
 
-            elif start == b"\xd3":
-                # RTCM
-                hdr = b""
-                while len(hdr) < 2:
-                    more = self.gps.uart.read(2 - len(hdr))
-                    if more:
-                        hdr += more
+                if b0 == 0xD3 and remaining >= 3:
+                    # Extract RTCM Header and Length fields
+                    hdr = self.buf[self.start_idx+1:self.start_idx+3]
+                    length = ((hdr[0] & 0x03) << 8) | hdr[1]
+                    # preamble+header+payload+CRC
+                    total_len = 3 + length + 3
+                    # Length field must indicate max 1023 bytes
+                    if length == 0 or length > 1023:
+                        self.start_idx += 1
+                        continue
+                    if remaining < total_len:
+                        # Not got whole msg yet
+                        break
 
-                length = ((hdr[0] & 0x03) << 8) | hdr[1]
+                    msg = self.buf[self.start_idx:self.start_idx+total_len]
+                    self.start_idx += total_len
+                    return bytes(msg)
 
-                # Read payload + CRC safely
-                body = b''
-                while len(body) < length + 3:
-                    more = self.gps.uart.read(length + 3 - len(body))
-                    if more:
-                        body += more
+                elif b0 == ord('$'):
+                    #NMEA?
+                    # Look for end marker
+                    end_idx = self.buf.find(b'\r\n', self.start_idx, self.buf_len)
+                    if end_idx == -1:
+                        if self.buf_len > 82:
+                            # NMEA messages are max 82 bytes long
+                            # If longer, and end-marker not found, then false-positive, move on
+                            self.start_idx += 1
+                            continue
+                        else:
+                            # Need more data
+                            break
+                    # Found end marker - build message, move index
+                    msg = self.buf[self.start_idx:end_idx+2]
+                    self.start_idx = end_idx + 2
+                    return bytes(msg)
 
-                return b'\xd3' + hdr + body
+                else:
+                    # Not a marker-byte, move on
+                    self.start_idx += 1
 
-            else:
-                # Loop until we hit a new byte-marker
-                continue
-
+            # Periodically compact buffer to avoid growing indefinitely
+            if self.start_idx > 512:
+                self.buf[:self.buf_len - self.start_idx] = self.buf[self.start_idx:self.buf_len]
+                self.buf_len -= self.start_idx
+                self.start_idx = 0
 
     async def ntrip_client_read(self):
         while True:
