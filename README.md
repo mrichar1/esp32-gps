@@ -144,7 +144,9 @@ NOTE: The `Caster` module currently only supports connection from a single `Serv
 
 ## Testing & Performance
 
-This code has been successfully tested on a C3 Supermini (with a GPS device sending RTCM and NMEA messages) running `Caster` and `Server` NTRIP services, while also streaming location data to SW Maps via Bluetooth, or via USB serial. However in most real-world use these would be split to two separate devices, one Base station and one Rover.
+This code has been successfully tested on a C3 Supermini (with a GPS device sending RTCM and NMEA messages) running `Caster` and `Server` NTRIP services, while also streaming location data to SW Maps via Bluetooth, or via USB serial. However in most real-world use these would be split to two separate devices: one Base station and one Rover.
+
+In practice, there may be memory constraints running Caster, Server and serving to more than 3-4 clients.
 
 This module writes logs using the proprietary NMEA sentence `$PLOG` - this allows log messages to be interleaved with GPS data on the USB serial output without causing issues with anything consuming the stream.
 
