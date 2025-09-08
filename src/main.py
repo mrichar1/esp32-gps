@@ -2,6 +2,7 @@ import asyncio
 import gc
 import sys
 import time
+from machine import UART
 from blue import Blue
 from net import Wifi
 import config as cfg
@@ -19,16 +20,14 @@ class ESP32GPS():
     def __init__(self):
         # ESP32 has no clock so store time taken from $GPRMC messages
         self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
-        self.buf = bytearray()
-        self.buf_len = 0
-        self.start_idx = 0
-
-
+        self.irq_event = asyncio.ThreadSafeFlag()
 
     async def run(self):
         if hasattr(cfg, "GPS_SETUP_COMMANDS"):
             for cmd in cfg.GPS_SETUP_COMMANDS:
                 self.gps.write_nmea(cmd)
+        # Set up GPS read irq callback
+        self.gps.uart.irq(self.uart_irq_handler, UART.IRQ_RXIDLE)
         self.blue = None
         if cfg.ENABLE_BLUETOOTH:
             self.blue = Blue(name=cfg.DEVICE_NAME)
@@ -56,76 +55,16 @@ class ESP32GPS():
             task_gps
         )
 
-    async def read_uart(self):
-        while True:
-            data = self.gps.uart.read()
-            if data:
-                mlen = len(data)
-                # Protect against OOM in case of unuusally large messages
-                if self.buf_len + mlen > 2048:
-                    # Overflow - skip old bytes
-                    self.start_idx = 0
-                    self.buf_len = 0
-                self.buf[self.buf_len:self.buf_len+mlen] = data
-                self.buf_len += mlen
-            else:
-                await asyncio.sleep(0)
-                continue
-
-            while self.start_idx < self.buf_len:
-                b0 = self.buf[self.start_idx]
-                remaining = self.buf_len - self.start_idx
-
-                if b0 == 0xD3 and remaining >= 3:
-                    # Extract RTCM Header and Length fields
-                    hdr = self.buf[self.start_idx+1:self.start_idx+3]
-                    length = ((hdr[0] & 0x03) << 8) | hdr[1]
-                    # preamble+header+payload+CRC
-                    total_len = 3 + length + 3
-                    # Length field must indicate max 1023 bytes
-                    if length == 0 or length > 1023:
-                        self.start_idx += 1
-                        continue
-                    if remaining < total_len:
-                        # Not got whole msg yet
-                        break
-
-                    msg = self.buf[self.start_idx:self.start_idx+total_len]
-                    self.start_idx += total_len
-                    return bytes(msg)
-
-                elif b0 == ord('$'):
-                    #NMEA?
-                    # Look for end marker
-                    end_idx = self.buf.find(b'\r\n', self.start_idx, self.buf_len)
-                    if end_idx == -1:
-                        if self.buf_len > 82:
-                            # NMEA messages are max 82 bytes long
-                            # If longer, and end-marker not found, then false-positive, move on
-                            self.start_idx += 1
-                            continue
-                        else:
-                            # Need more data
-                            break
-                    # Found end marker - build message, move index
-                    msg = self.buf[self.start_idx:end_idx+2]
-                    self.start_idx = end_idx + 2
-                    return bytes(msg)
-
-                else:
-                    # Not a marker-byte, move on
-                    self.start_idx += 1
-
-            # Periodically compact buffer to avoid growing indefinitely
-            if self.start_idx > 512:
-                self.buf[:self.buf_len - self.start_idx] = self.buf[self.start_idx:self.buf_len]
-                self.buf_len -= self.start_idx
-                self.start_idx = 0
-
     async def ntrip_client_read(self):
         while True:
             async for data in ntrip_client.iter_data():
                 self.esp32_write_data(data)
+
+    def uart_irq_handler(self, u):
+        # Ignore UART unless there is an output to recv data
+        if "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
+            self.irq_event.set()
+
 
     async def gps_data(self):
         """Read data from GPS and send to configured outputs.
@@ -135,38 +74,38 @@ class ESP32GPS():
         NMEA sentences are sent to USB serial (if enabled), Bluetooth (if enabled) and NTRIP server (if enabled, but only non-NMEA data).
         """
         while True:
-            while "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
-                isNMEA= False
-                line = await self.read_uart()
-                if not line:
-                    continue
-                # Handle NMEA sentences
-                if line.startswith(b"$") and line.endswith(b"\r\n"):
-                    isNMEA = True
-                    if cfg.PQTMEPE_TO_GGST:
-                        if line.startswith(b"$GNRMC"):
-                            # Extract UTC_TIME (as str) for use in GST sentence creation
-                            self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
-                        if line.startswith(b"$PQTMEPE"):
-                            line = self.gps.pqtmepe_to_gst(line)
-                try:
-                    if cfg.ENABLE_USB_SERIAL_CLIENT:
-                        sys.stdout.write(line)
-                except Exception as e:
-                    log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
-                try:
-                    if cfg.ENABLE_BLUETOOTH and self.blue.is_connected():
-                        self.blue.send(line)
-                except Exception as e:
-                    log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
-                try:
-                    if not isNMEA and 'server' in cfg.NTRIP_MODE:
-                        # Don't sent NMEA sentences to NTRIP server
-                        await self.ntrip_server.send_data(line)
-                except Exception as e:
-                    log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
-            # Wait for one of the outputs to start
-            await asyncio.sleep(1)
+            await self.irq_event.wait()
+            isNMEA= False
+            line = self.gps.uart.read()
+            if not line:
+                continue
+            # Handle NMEA sentences
+            if line.startswith(b"$") and line.endswith(b"\r\n"):
+                isNMEA = True
+                if cfg.PQTMEPE_TO_GGST:
+                    if line.startswith(b"$GNRMC"):
+                        # Extract UTC_TIME (as str) for use in GST sentence creation
+                        self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
+                    if line.startswith(b"$PQTMEPE"):
+                        line = self.gps.pqtmepe_to_gst(line)
+            try:
+                if cfg.ENABLE_USB_SERIAL_CLIENT:
+                    sys.stdout.write(line)
+            except Exception as e:
+                log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
+            try:
+                if cfg.ENABLE_BLUETOOTH and self.blue.is_connected():
+                    self.blue.send(line)
+            except Exception as e:
+                log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
+            try:
+                if not isNMEA and 'server' in cfg.NTRIP_MODE:
+                    # Don't sent NMEA sentences to NTRIP server
+                    await self.ntrip_server.send_data(line)
+            except Exception as e:
+                log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
+            # Settle
+            await asyncio.sleep_ms(1)
 
     def esp32_write_data(self, value):
         """Callback to run if device is written to (BLE, Serial)"""
