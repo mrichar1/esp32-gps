@@ -42,9 +42,9 @@ class Base():
         self.request_headers = None
         self.reader = None
         self.writer = None
-        # Assuming avg RTCM message is 200 bytes, queue around 4096bytes of them
+        # Assuming avg RTCM message is 200 bytes, queue around 2048bytes of them
         # (in usual operation, queue never grows to more than 2 with clients reading from caster)
-        self.queue = deque([], 20)
+        self.queue = deque([], 10)
         self.event = asyncio.Event()
 
     def build_headers(self, method, mount=None):
@@ -63,24 +63,29 @@ class Base():
             try:
                 log(f"[{self.name}] Connecting to {self.host}:{self.port}...")
                 self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+                self.writer.write(self.request_headers)
+                await self.writer.drain()
+                headers = await self.reader.read(1024)
+                headers = headers.split(b"\r\n")
+                for line in headers:
+                    if line.endswith(b"200 OK"):
+                        break
+                else:
+                    # Not valid login
+                    raise ValueError(headers)
                 break
-            except OSError as err:
+            except (OSError, ValueError) as err:
                 log(f"[{self.name}] Connection error: {err}")
-                time.sleep(3)
+                try:
+                    self.writer.close()
+                except:
+                    pass
+                # Wait before trying to reconnect
+                asyncio.sleep(3)
 
-        # Initial login - check response
-        login_ok = False
-        self.writer.write(self.request_headers)
-        await self.writer.drain()
-        headers = await self.reader.read(1024)
-        headers = headers.split(b"\r\n")
-        for line in headers:
-            if line.endswith(b"200 OK"):
-                login_ok = True
-        if not login_ok:
-            self.writer.close()
-            raise ValueError(headers)
-
+            # Initial login - check response
+            except OSError:
+                pass
 
 class Client(Base):
 
@@ -329,10 +334,13 @@ class Caster():
 
     async def server_loop(self, mount, conns, s_writer, s_reader):
         """Loop reading from server and writing to client(s)"""
-        buffer = bytearray()
         try:
             while True:
+                if mount not in self.mounts or not len(conns["clients"]):
+                    # No server or clients associated with this mount any more.
+                    break
                 try:
+                    # Max msg length for RTCM is 1023
                     data = await s_reader.read(1024)
                     if not data:
                         # Empty data = server disconnect
@@ -340,43 +348,26 @@ class Caster():
                 except OSError:
                     await self.drop_connection(mount, s_writer, conn_type="server")
                     break
-                buffer += data
-                # Split into RTCM messages
-                while True:
-                    # We need at least the 3-byte header
-                    if len(buffer) < 3:
+                cli_remove = []
+                for c_writer, _ in conns["clients"].items():
+                    try:
+                        c_writer.write(data)
+                        await c_writer.drain()
+                    except OSError:
+                        # Flag client for removal at end of loop
+                        cli_remove.append(c_writer)
+                        # Don't send more messages
                         break
-                    if buffer[0] != 0xD3:
-                        # Skip ahead to next msg delimiter
-                        buffer = buffer[1:]
-                        continue
+                for c_writer in cli_remove:
+                    await self.drop_connection(mount, c_writer)
 
-                    # Calculate message length
-                    length = ((buffer[1] & 0x03) << 8) | buffer[2]
-                    total_len = 3 + length + 3
-                    # We need the whole message
-                    if len(buffer) < total_len:
-                        break
+                # Yield control
+                await asyncio.sleep_ms(1)
 
-                    # Extract the message and remaining buffer
-                    msg = buffer[:total_len]
-                    buffer = buffer[total_len:]
-                    # Write to all clients
-                    for c_writer, c_reader in conns["clients"].items():
-                        try:
-                            c_writer.write(msg)
-                        except OSError:
-                            await self.drop_connection(mount, c_writer)
-                            # Don't send more messages
-                            break
-                    # Yield to allow write drains
-                    await asyncio.sleep(0)
         except Exception as e:
             if DEBUG:
                 sys.print_exception(e)
             await self.drop_connection(mount, s_writer, conn_type="server")
-        finally:            # Clean up task tracking so run() can restart if needed
-            self.server_tasks.pop((mount, s_writer), None)
 
 
 
@@ -465,9 +456,16 @@ class Caster():
                 self.mounts[mount] = {"servers": {writer: reader}, "clients": {}}
         except AuthError:
             writer.write("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
-            await writer.drain()
             writer.close()
             await writer.wait_closed()
+        except:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except:
+                pass
+        asyncio.sleep(0)
+
 
     async def run(self):
         self.get_allowed_mounts()

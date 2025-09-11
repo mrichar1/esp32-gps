@@ -1,6 +1,7 @@
 """ Config variables - accessed as config.X in main.py"""
 
 # GPS device configuration
+ENABLE_GPS = True                   # Enable GPS device for reading via UART serial.
 ESP32_TX_PIN = 0                    # Connected to GPS RX pin
 ESP32_RX_PIN = 1                    # Connected to GPS TX pin
 GPS_BAUD_RATE = 115200              # For LC29HEA - set to 115200 for most other models
@@ -20,6 +21,12 @@ ENABLE_BLUETOOTH = True             # Output via bluetooth device
 # Either set here, or ensure wifi is enabled in boot.py
 WIFI_SSID = ""                      # SSID for Wifi Access Point
 WIFI_PSK = ""                       # PSK for Wifi Access Point
+
+# ESPNow config
+ESPNOW_MODE = "sender"              # ESP Mode can be sender or receiver (or empty to disable)
+# If ESPMODE = sender, send to all peers.
+# If receiver, receive data from the first peer in the list as if it was a local GPS device.
+ESPNOW_PEERS = [b"\xbb\xbb\xbb\xbb\xbb\xbb"] # List of mac addresses for peers.
 
 # NTRIP configuration
 NTRIP_MODE = "client"               # To enable NTRIP services, comma-separated list of: client (pull NTRIP data from caster), server (upload NTRIP data to a caster), caster (read/write to servers/clients)

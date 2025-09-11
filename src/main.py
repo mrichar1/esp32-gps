@@ -1,26 +1,39 @@
 import asyncio
-import gc
 import sys
-import time
 from machine import UART
 from blue import Blue
-from net import Wifi
+from net import Net
 import config as cfg
 from gps_utils import GPS, log
 import ntrip
 
-try:
-    Wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PSK)
-except AttributeError:
-    # No credentials provided - skip activating wifi
-    pass
-
 class ESP32GPS():
 
     def __init__(self):
-        # ESP32 has no clock so store time taken from $GPRMC messages
-        self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
+        self.net = None
         self.irq_event = asyncio.ThreadSafeFlag()
+        self.espnow_event = asyncio.ThreadSafeFlag()
+        self.ntrip_caster = None
+        self.ntrip_server = None
+        self.ntrip_client = None
+
+
+    def setup_networks(self):
+        self.net = Net()
+        # Note: We start wifi first, as this will define the channel to be used.
+        # Wifi connections also enable power management, which espnow startup will later disable.
+        # See: https://docs.micropython.org/en/latest/library/espnow.html#espnow-and-wifi-operation
+        try:
+            self.net.enable_wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PSK)
+        except AttributeError:
+            pass
+        # Start ESPNow if peers provided
+        try:
+            if cfg.ESPNOW_MODE:
+                self.net.enable_espnow(peers=cfg.ESPNOW_PEERS)
+        except AttributeError:
+            # No ESPNOW peers provided - skip activating ESPNOW
+            pass
 
 
     def esp32_write_data(self, value):
@@ -28,89 +41,139 @@ class ESP32GPS():
         self.gps.uart.write(value)
 
     async def ntrip_client_read(self):
+        """Read data from NTRIP client and write to GPS device."""
         while True:
             async for data in ntrip_client.iter_data():
                 self.esp32_write_data(data)
 
+    async def espnow_reader(self):
+        """Read from ESPNow in async loop, and send for outputting."""
+        while True:
+            try:
+                data = await self.net.espnow_recv()
+                if data:
+                    await self.gps_data(data)
+            except Exception as e:
+                sys.print_exception(e)
+
     def uart_read_handler(self, u):
         """Callback to run if GPS has data ready for reading."""
         # Ignore UART unless there is an output to recv data
-        if "server" in cfg.NTRIP_MODE or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
-            self.irq_event.set()
+        if "server" in cfg.NTRIP_MODE or cfg.ESPNOW_MODE == "sender" or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
+            data = self.gps.uart.read()
+            if data:
+                # We mustn't block here, so schedule an async task to handle the data
+                asyncio.get_event_loop().create_task(self.gps_data(data))
 
-    async def gps_data(self):
-        """Read data from GPS and send to configured outputs.
+    async def gps_data(self, line):
+        """Read GPS data and send to configured outputs.
 
         All exceptions are caught and logged to avoid crashing the main thread.
 
-        NMEA sentences are sent to USB serial (if enabled), Bluetooth (if enabled) and NTRIP server (if enabled, but only non-NMEA data).
+        NMEA sentences are sent to (if enabled): USB serial, Bluetooth, ESPNow and NTRIP server (only non-NMEA data).
         """
-        while True:
-            await self.irq_event.wait()
-            isNMEA= False
-            line = self.gps.uart.read()
-            if not line:
-                continue
-            # Handle NMEA sentences
-            if line.startswith(b"$") and line.endswith(b"\r\n"):
-                isNMEA = True
-                if cfg.PQTMEPE_TO_GGST:
-                    if line.startswith(b"$GNRMC"):
-                        # Extract UTC_TIME (as str) for use in GST sentence creation
-                        self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
-                    if line.startswith(b"$PQTMEPE"):
-                        line = self.gps.pqtmepe_to_gst(line)
-            try:
-                if cfg.ENABLE_USB_SERIAL_CLIENT:
-                    sys.stdout.write(line)
-            except Exception as e:
-                log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
-            try:
-                if cfg.ENABLE_BLUETOOTH and self.blue.is_connected():
-                    self.blue.send(line)
-            except Exception as e:
-                log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
-            try:
-                if not isNMEA and 'server' in cfg.NTRIP_MODE:
-                    # Don't sent NMEA sentences to NTRIP server
-                    await self.ntrip_server.send_data(line)
-            except Exception as e:
-                log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
-            # Settle
-            await asyncio.sleep_ms(1)
+        if not line:
+            return
+        isNMEA= False
+        # Handle NMEA sentences
+        if line.startswith(b"$") and line.endswith(b"\r\n"):
+            isNMEA = True
+            if cfg.ENABLE_GPS and cfg.PQTMEPE_TO_GGST:
+                if line.startswith(b"$GNRMC"):
+                    # Extract UTC_TIME (as str) for use in GST sentence creation
+                    self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
+                if line.startswith(b"$PQTMEPE"):
+                    line = self.gps.pqtmepe_to_gst(line)
+        try:
+            if cfg.ENABLE_USB_SERIAL_CLIENT:
+                sys.stdout.write(line)
+        except Exception as e:
+            log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
+        try:
+            if cfg.ENABLE_BLUETOOTH and self.blue.is_connected():
+                self.blue.send(line)
+        except Exception as e:
+            log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
+        try:
+            if self.net.espnow_connected and cfg.ESPNOW_MODE == "sender":
+                await self.net.espnow_sendall(line)
+        except Exception as e:
+            log(f"[GPS DATA] ESPNow send exception: {sys.print_exception(e)}")
+        try:
+            # Don't sent NMEA sentences to NTRIP server
+            if not isNMEA and self.ntrip_server:
+                await self.ntrip_server.send_data(line)
+        except Exception as e:
+            log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
+        # Settle
+        asyncio.sleep(0)
 
     async def run(self):
-        if hasattr(cfg, "GPS_SETUP_COMMANDS"):
-            for cmd in cfg.GPS_SETUP_COMMANDS:
-                self.gps.write_nmea(cmd)
-        # Set up GPS read irq callback
-        self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
+        """Start various long-running async processes.
+
+        There are 2 conditions which affect which services to start:
+        1. GPS data, sourced either from a GPS device, or ESPNOW receiver.
+        2. Wifi connection.
+
+        Data source is needed for:
+        a. Bluetooth.
+        b. Serial output
+        c. NTRIP Server.
+
+        Wifi is needed for:
+        a. NTRIP services (caster, server, client)
+        """
+        tasks = []
+
+        self.setup_networks()
+
+        # Expect to receive gps data (from device, or ESPNOW)
+        src_data = True
+        if cfg.ENABLE_GPS:
+            log("Enabling GPS device.")
+            self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
+            if hasattr(cfg, "GPS_SETUP_COMMANDS"):
+                for cmd in cfg.GPS_SETUP_COMMANDS:
+                    self.gps.write_nmea(cmd)
+            # Set up GPS read irq callback
+            self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
+            # sender goes with GPS device
+            if hasattr(cfg, "ESPNOW_MODE") and cfg.ESPNOW_MODE == "sender":
+                log("ESPNow: sender mode.")
+        elif hasattr(cfg, "ESPNOW_MODE") and cfg.ESPNOW_MODE == "receiver":
+            log("ESPNow: receiver mode.")
+            tasks.append(self.espnow_reader())
+        else:
+            log("No GPS source available. Serial, Bluetooth and NTRIP server output will be disabled.")
+            src_data = False
+
         self.blue = None
-        if cfg.ENABLE_BLUETOOTH:
+        # No point enabling bluetooth if no GPS data to send
+        if src_data and cfg.ENABLE_BLUETOOTH:
             self.blue = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
             self.blue.write_callback = self.esp32_write_data
 
-        if 'caster' in cfg.NTRIP_MODE:
-            self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
-            task_cast = asyncio.create_task(self.ntrip_caster.run())
-            # Allow Caster to start before Server/Client
-            await asyncio.sleep(2)
-        if 'server' in cfg.NTRIP_MODE:
-            self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
-            task_srv = asyncio.create_task(self.ntrip_server.run())
-        if 'client' in cfg.NTRIP_MODE:
-            self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
-            task_cli = asyncio.create_task(self.ntrip_client.run())
-            await self.ntrip_client_read()
+        # NTRIP needs a network connection
+        if self.net.wifi_connected:
+            if 'caster' in cfg.NTRIP_MODE:
+                self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
+                tasks.append(asyncio.create_task(self.ntrip_caster.run()))
+                # Allow Caster to start before Server/Client
+                await asyncio.sleep(2)
+            if src_data and 'server' in cfg.NTRIP_MODE:
+                self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
+                tasks.append(asyncio.create_task(self.ntrip_server.run()))
+            if cfg.ENABLE_GPS and 'client' in cfg.NTRIP_MODE:
+                self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
+                tasks.append(asyncio.create_task(self.ntrip_client.run()))
+                tasks.append(self.ntrip_client_read())
 
-        task_gps = asyncio.create_task(self.gps_data())
+        await asyncio.gather(*tasks)
 
-        await asyncio.gather(
-            task_cast,
-            task_srv,
-            task_gps
-        )
+        # keep the loop alive
+        while True:
+            await asyncio.sleep(1)
 
 
 if __name__ == "__main__":
