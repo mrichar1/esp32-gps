@@ -21,6 +21,7 @@ ENABLE_BLUETOOTH = True             # Output via bluetooth device
 # Either set here, or ensure wifi is enabled in boot.py
 WIFI_SSID = ""                      # SSID for Wifi Access Point
 WIFI_PSK = ""                       # PSK for Wifi Access Point
+WIFI_TXPOWER = None                 # Some boards (e.g. C3) have more stable connections with reduced txpower (txpower=5)
 
 # ESPNow config
 ESPNOW_MODE = "sender"              # ESP Mode can be sender or receiver (or empty to disable)

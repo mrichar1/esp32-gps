@@ -11,7 +11,7 @@ except ImportError:
 
 class Net():
 
-    def __init__(self):
+    def __init__(self, txpower=None):
         self._buffer = b""
         self.espnow = None
         self.espnow_peers = []
@@ -20,15 +20,15 @@ class Net():
         # Get a handle to wifi interfaces
         self.wlan = network.WLAN(network.WLAN.IF_STA)
         self.wlan.active(True)
+        # Some boards (e.g. C3) have more stable connections with lower txpower (5)
+        if txpower:
+            self.wlan.config(txpower=txpower)
         # Chek if wifi has been set up already (e.g. in boot.py)
         if self.wlan.isconnected():
             self.wifi_connected = True
 
 
     def enable_espnow(self, peers):
-        # Try to maximise wifi efficiency
-        # Set power as high as possible
-        self.wlan.config(txpower=85)
         # Disable power management
         self.wlan.config(pm=network.WLAN.PM_NONE)
         self.espnow_peers = peers

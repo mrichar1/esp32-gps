@@ -23,7 +23,10 @@ class ESP32GPS():
 
 
     def setup_networks(self):
-        self.net = Net()
+        txpower=None
+        if hasattr(cfg, "WIFI_TXPOWER"):
+            txpower = cfg.WIFI_TXPOWER
+        self.net = Net(txpower=txpower)
         # Note: We start wifi first, as this will define the channel to be used.
         # Wifi connections also enable power management, which espnow startup will later disable.
         # See: https://docs.micropython.org/en/latest/library/espnow.html#espnow-and-wifi-operation
