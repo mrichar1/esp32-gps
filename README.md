@@ -179,7 +179,7 @@ This code has been successfully tested on a C3 Supermini (with a GPS device send
 
 In practice, there may be memory constraints running Caster, Server and serving to more than 3-4 clients.
 
-Debugging can be enabled by setting `DEBUG=True` in debug.py.
+Debugging can be enabled by setting `DEBUG=True` in `src/debug.py`.
 
 **NOTE** the generation of some debug messages may impact performance or efficiency - do not leave debugging enabled in production!
 
