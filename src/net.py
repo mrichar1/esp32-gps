@@ -49,8 +49,6 @@ class Net():
         if self.wlan.config('ssid') == ssid and self.wlan.isconnected():
             self.wifi_connected = True
         else:
-            # Suggested to improve connection success on some ESP32 C3 devices
-            self.wlan.config(txpower(5))
             self.wlan.connect(ssid, key)
             log("Wifi connecting...(allowing up to 20 seconds to complete)")
             for i in range(20):
