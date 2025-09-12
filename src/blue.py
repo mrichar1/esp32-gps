@@ -2,6 +2,10 @@ import bluetooth
 import errno
 import time
 from micropython import const
+try:
+    from debug import DEBUG
+except ImportError:
+    DEBUG=False
 
 # Set constants
 IRQ_CENTRAL_CONNECT = const(1)

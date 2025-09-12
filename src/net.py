@@ -4,6 +4,10 @@ import network
 import sys
 import time
 from gps_utils import log
+try:
+    from debug import DEBUG
+except ImportError:
+    DEBUG=False
 
 class Net():
 

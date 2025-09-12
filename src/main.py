@@ -6,6 +6,10 @@ from net import Net
 import config as cfg
 from gps_utils import GPS, log
 import ntrip
+try:
+    from debug import DEBUG
+except ImportError:
+    DEBUG=False
 
 class ESP32GPS():
 

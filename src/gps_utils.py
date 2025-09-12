@@ -1,5 +1,9 @@
 """Handle GPS serial access via UART, and provide helper functions."""
 import sys
+try:
+    from debug import DEBUG
+except ImportError:
+    DEBUG=False
 
 
 def nmea_checksum(sentence):
