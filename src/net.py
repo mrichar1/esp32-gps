@@ -20,6 +20,10 @@ class Net():
         # Get a handle to wifi interfaces
         self.wlan = network.WLAN(network.WLAN.IF_STA)
         self.wlan.active(True)
+        # Chek if wifi has been set up already (e.g. in boot.py)
+        if self.wlan.isconnected():
+            self.wifi_connected = True
+
 
     def enable_espnow(self, peers):
         # Try to maximise wifi efficiency
@@ -45,10 +49,7 @@ class Net():
 
     def enable_wifi(self, ssid, key):
         """Connect to wifi if not already connected."""
-        self.wifi_connected = False
-        if self.wlan.config('ssid') == ssid and self.wlan.isconnected():
-            self.wifi_connected = True
-        else:
+        if self.wifi_connected == False:
             self.wlan.connect(ssid, key)
             log("Wifi connecting...(allowing up to 20 seconds to complete)")
             for i in range(20):
@@ -60,7 +61,7 @@ class Net():
                 log("WLAN Connection failed.")
 
         if self.wifi_connected:
-            log(f"WLAN connected, IP: {self.wlan.ifconfig()[0]}, channel: {self.wlan.config("channel")}")
+            log(f"WLAN connected, SSID: {self.wlan.config('ssid')}, IP: {self.wlan.ifconfig()[0]}, channel: {self.wlan.config("channel")}")
 
 
     async def espnow_send(self, peer, msg):
