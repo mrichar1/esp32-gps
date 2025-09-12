@@ -42,7 +42,7 @@ class GPS():
         if not "*" in msg:
             chksum = nmea_checksum(msg)
             msg = f"{msg}*{chksum}"
-        log(f"Sending GPS Command: {msg}")
+        log(f"Sent GPS Cmd: {msg}")
         self.uart.write(f"${msg}\r\n")
 
     def pqtmepe_to_gst(self, pqtmepe):

@@ -28,7 +28,7 @@ class Net():
     def enable_espnow(self, peers):
         # Try to maximise wifi efficiency
         # Set power as high as possible
-        self.wlan.config(txpower(85))
+        self.wlan.config(txpower=85)
         # Disable power management
         self.wlan.config(pm=network.WLAN.PM_NONE)
         self.espnow_peers = peers
@@ -49,7 +49,8 @@ class Net():
 
     def enable_wifi(self, ssid, key):
         """Connect to wifi if not already connected."""
-        if self.wifi_connected == False:
+        if self.wifi_connected == False or ssid != self.wlan.config('ssid'):
+            self.wlan.disconnect()
             self.wlan.connect(ssid, key)
             log("Wifi connecting...(allowing up to 20 seconds to complete)")
             for i in range(20):
