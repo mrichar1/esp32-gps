@@ -66,7 +66,7 @@ _The default TX/RX Pins 0 and 1 can be altered in the config. Remember to connec
 
 You can test GPS NMEA output by doing one of the following (with either `ENABLE_BLUETOOTH` or `ENABLE_USB_SERIAL` set):
 
-* USB Serial output: `cat /dev/ttyACM0`, or `rshell` -> `repl` -> `ctlr-D` - look for NMEA messages.
+* USB Serial output: `cat /dev/ttyACM0`, or `rshell` -> `repl` -> `ctrl-D` - look for NMEA messages.
 * Bluetooth LE: Android - connect Bluetooth device, open SW Maps or equivalent, add Bluetooth LE device by name (default is `ESP32_GPS`) and look for location data.
 
 You can test NTRIP `Server` & `Caster` again using SW Maps, PyGPSClient or similar GPS tool that supports NTRIP data.
@@ -160,7 +160,7 @@ Wifi credentials can be left blank. (If you are using ESP-Now it is usually beca
 
 ### Receiver
 
-The receiver will consume GPS data (RTCM) from the first peer in `ESPNOW_PEERS`.
+The receiver will consume GPS data from the first peer in `ESPNOW_PEERS`.
 
 This data will then be handled as if it had come from a GPS device, so can be output via serial, bluetooth, NTRIP server etc.
 
