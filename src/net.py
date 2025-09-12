@@ -75,7 +75,9 @@ class Net():
     async def espnow_sendall(self, msg):
         """Send to all peers. Split into max 250 byte chunks."""
         # ESPNow has a 250 byte max message size
-        chunk_size = 1024
+        # FIXME: Ideally we can switch to 1024 if this PR is accepted:
+        # https://github.com/micropython/micropython/pull/16737
+        chunk_size = 250
 
         data = self._buffer + msg
 
