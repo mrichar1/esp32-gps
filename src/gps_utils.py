@@ -5,6 +5,8 @@ try:
 except ImportError:
     DEBUG=False
 
+# Maximum length of an NMEA sentence is 82, minus 10 for $PLOG,<payload>*XX\r\n
+NMEA_LEN = 72
 
 def nmea_checksum(sentence):
     """Calculate NMEA 0183 checksum for a sentence."""
@@ -20,13 +22,16 @@ def log(msg=""):
 
     This allows log messages to be intermised with GPS data if using USB serial output.
     """
-
     msg = str(msg)
-    chksum = nmea_checksum(msg)
-    # Escape any literal newlines/special chars in the message
-    msg_str = msg.encode('unicode_escape').decode()
-    # sys.stdout is USB serial on ESP32 devices
-    sys.stdout.write(f"$PLOG,{msg_str}*{chksum}\r\n")
+    # Split messages on newline (for long debug tracebacks)
+    for line in msg.split("\n"):
+        # Chunk messages to stay under NMEA sentence length limit
+        for i in range(0, len(line), NMEA_LEN):
+            # Escape any literal newlines/special chars in the message
+            msg_str = line[i:i+NMEA_LEN].encode('unicode_escape').decode()
+            chksum = nmea_checksum(msg_str)
+            # sys.stdout is USB serial on ESP32 devices
+            sys.stdout.write(f"$PLOG,{msg_str}*{chksum}\r\n")
 
 
 class GPS():
