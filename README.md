@@ -13,6 +13,7 @@ Tested with ESP32 C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
 * Rewriting of NMEA sentences on-the-fly (e.g. PQTMEPE -> GPGST accuracy sentences).
 * GPS Device Writing (RTCM corrections, Config commands).
 * NTRIP `Client` (for Rover), `Server` (for Base Station) and `Caster` (for Base stations).
+* ESPNow support for proxying GPS data between ESP32 devices.
 
 ## Device Setup
 
@@ -72,11 +73,14 @@ You can test NTRIP `Server` & `Caster` again using SW Maps, PyGPSClient or simil
 
 ## GPS Module Configuration
 
+The GPS module serial connection can be enabled by setting `GPS_ENABLE = True`. This allows devices to consume data either from a GPS device, or from an ESPNow stream.
 If your GPS device needs custom commands sent to it, these can be set by adding entries to the list in the `GPS_SETUP_COMMANDS` configuration option. These are applied prior to starting any NTRIP services or reading/writing data to/from the GPS device.
 
 ## NTRIP Support
 
-NOTE: NTRIP services require Wifi to be enabled to send/receive data from external sources. Yuo can either set the `WIFI` config options to cause a connection to be set up, or manually set up networking in `boot.py`.
+NOTE: NTRIP services require Wifi to be enabled to send/receive data from external sources. You can either set the `WIFI` config options to cause a connection to be set up, or manually set up networking in `boot.py`.
+
+**NOTE** ESP32 wifi state is preserved across soft-reboots. If you set `WIFI_SSID` to a different value than that of the current connection, the connection will be dropped and a new one established. However if you remove Wifi config options, the device may still connect to the last-known ssid. Yuo either need to manually reset the Wifi settings, or set `WIFI_SSID` to a non-existent ssid, which will result in no Wifi connection.
 
 This code provide support for `Client`, `Server` and `Caster` NTRIP modes. These can be enabled in parallel by specifying mulitple modes separated by commas for the config option `NTRIP_MODE`.
 
@@ -118,7 +122,7 @@ NOTE: If you are using a public Caster you may need to pre-register your Base st
 
 `Caster` mode is used to receive NTRIP data from one or more `Servers` and pass that data on to one or more `Clients`.
 
-To use, ensure you set the following configuration options.
+To use, ensure you set the following configuration options. The Sourcetable must contain at least the Mountpoint field that you expect the server to send data from.
 
 ```
 # Common config
@@ -134,13 +138,40 @@ NTRIP_MOUNT = "ESP32"
 #Caster Config
 NTRIP_CASTER_BIND_ADDRESS = "0.0.0.0"
 NTRIP_CASTER_BIND_PORT = 2101
-# These values are reported in the SOURCETABLE - but usually do not need to be correct unless your client validates them
-NTRIP_BASE_LATITUDE = "56.62"
-NTRIP_BASE_LONGITUDE = "-3.94"
-NTRIP_COUNTRY_CODE = "GBR"
+NTRIP_SOURCETABLE = """
+STR;ESP32;ESP32_GPS;RTCM3.3;;2;GLO+GAL+QZS+BDS+GPS;NONE;GBR;56.62;-3.94;0;0;NTRIP ESP32_GPS;none;B;N;15200;ESP32_GPS
+"""
+
 ```
 
-NOTE: The `Caster` module currently only supports connection from a single `Server`, sending data for mount-point specified in `NTRIP_MOUNT` (defaults to ESP32). It can however support multiple clients (rovers) reading that data.
+NOTE: The `Caster` module can support multiple `Server` connections - each server must send data from a different mountpoint, and each mountpoint myust be specified in the `NTRIP_SOURCETABLE`. It can also support multiple clients connecting to the same or different mountpoints. However be aware of the physical limitations of ESP32 devices in terms of maximum server/client connections!
+
+## ESP-Now support
+
+ESP-Now can be enabled to act as a proxy and send all GPS data (RTCM and NMEA) from one device to others.
+
+ESP-Now support can be enabled by setting `ESPNOW_MODE` to one of `sender`, `receiver` (or left empty to disable).
+
+### Sender
+
+The sender will consume GPS data from a GPS module (ensure `GPS_ENABLE=True`) and send it to all `ESPNOW_PEERS`.
+
+Wifi credentials can be left blank. (If you are using ESP-Now it is usually because wifi is not available!)
+
+### Receiver
+
+The receiver will consume GPS data (RTCM) from the first peer in `ESPNOW_PEERS`.
+
+This data will then be handled as if it had come from a GPS device, so can be output via serial, bluetooth, NTRIP server etc.
+
+**NOTE** In receiver mode no data will be read from the GPS serial device, to avoid conflicting data coming from 2 sources.
+
+
+
+
+
+
+
 
 ## Testing & Performance
 
@@ -148,6 +179,10 @@ This code has been successfully tested on a C3 Supermini (with a GPS device send
 
 In practice, there may be memory constraints running Caster, Server and serving to more than 3-4 clients.
 
-This module writes logs using the proprietary NMEA sentence `$PLOG` - this allows log messages to be interleaved with GPS data on the USB serial output without causing issues with anything consuming the stream.
+Debugging can be enabled by setting `DEBUG=True` in debug.py.
+
+**NOTE** the generation of some debug messages may impact performance or efficiency - do not leave debugging enabled in production!
+
+This module writes logs using the proprietary NMEA sentence `$PLOG` - this allows log messages to be interleaved with GPS data on the USB serial output without causing issues with anything consuming the stream. Log messages shoudl therefore be displayed in clients that log proprietary NMEA sentences.
 
 Any issues, features or comments, especially if tested on other ESP32 or equivalent hardware types, appreciated!
