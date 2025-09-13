@@ -2,16 +2,22 @@
 
 # GPS device configuration
 ENABLE_GPS = True                   # Enable GPS device for reading via UART serial.
-ESP32_TX_PIN = 0                    # Connected to GPS RX pin
-ESP32_RX_PIN = 1                    # Connected to GPS TX pin
-GPS_BAUD_RATE = 115200              # For LC29HEA - set to 115200 for most other models
+GPS_UART = 1                        # UART device for GPS connection
+GPS_TX_PIN = 0                      # ESP32 pin - connected to GPS RX pin
+GPS_RX_PIN = 1                      # ESP32 pin - connected to GPS TX pin
+GPS_BAUD_RATE = 115200              # For LC29HEA, set 460800 - set to 115200 for most other models
 GPS_SETUP_COMMANDS = []             # List of NMEA commands (without $ and checksum) to be sent to GPS device on startup.
 
 # NMEA/Data configuration
 PQTMEPE_TO_GGST = False             # Convert PQTMEPE messages to GGST (for accuracy info from Quectel devices)
 
 # USB serial configuration
-ENABLE_USB_SERIAL_CLIENT = True     # Output via usb serial using sys.stdout as UART(0) is taken by REPL
+ENABLE_SERIAL_CLIENT = True         # Output GPS data via serial
+SERIAL_UART = 2                     # UART device for serial output
+SERIAL_TX_PIN = 3                   # Transmit pin
+SERIAL_RX_PIN = 4                   # Receive pin
+SERIAL_BAUD_RATE = 115200           # Serial baud rate
+LOG_TO_SERIAL = False               # If True, log messages are sent over serial, rather than to sys.stdout (REPL)
 
 # Bluetooth configuration
 DEVICE_NAME = "ESP32_GPS"           # Bluetooth device name

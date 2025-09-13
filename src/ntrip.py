@@ -5,9 +5,11 @@ import gc
 import sys
 import time
 from collections import deque
-from gps_utils import log
+from devices import Logger
 
 DEBUG=True
+
+log = Logger.getLogger().log
 
 try:
     from ubinascii import b2a_base64 as b64encode

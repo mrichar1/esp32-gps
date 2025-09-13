@@ -4,12 +4,14 @@ from machine import UART
 from blue import Blue
 from net import Net
 import config as cfg
-from gps_utils import GPS, log
+from devices import GPS, Logger, Serial
 import ntrip
 try:
     from debug import DEBUG
 except ImportError:
     DEBUG=False
+
+log = Logger.getLogger().log
 
 class ESP32GPS():
 
@@ -17,9 +19,26 @@ class ESP32GPS():
         self.net = None
         self.irq_event = asyncio.ThreadSafeFlag()
         self.espnow_event = asyncio.ThreadSafeFlag()
+        self.serial = None
         self.ntrip_caster = None
         self.ntrip_server = None
         self.ntrip_client = None
+
+    def setup_gps(self):
+        log("Enabling GPS device.")
+        self.gps = GPS(uart=cfg.GPS_UART, baudrate=cfg.GPS_BAUD_RATE, tx=cfg.GPS_TX_PIN, rx=cfg.GPS_RX_PIN)
+        if hasattr(cfg, "GPS_SETUP_COMMANDS"):
+            for cmd in cfg.GPS_SETUP_COMMANDS:
+                self.gps.write_nmea(cmd)
+        # Set up GPS read irq callback
+        self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
+
+
+    def setup_serial(self):
+        log_serial = False
+        if hasattr(cfg, "LOG_TO_SERIAL") and cfg.LOG_TO_SERIAL:
+            log_serial = True
+        self.serial = Serial(uart=cfg.SERIAL_UART, baudrate=cfg.SERIAL_BAUD_RATE, tx=cfg.SERIAL_TX_PIN, rx=cfg.SERIAL_RX_PIN, log_serial=log_serial)
 
 
     def setup_networks(self):
@@ -66,7 +85,7 @@ class ESP32GPS():
     def uart_read_handler(self, u):
         """Callback to run if GPS has data ready for reading."""
         # Ignore UART unless there is an output to recv data
-        if "server" in cfg.NTRIP_MODE or cfg.ESPNOW_MODE == "sender" or cfg.ENABLE_USB_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
+        if "server" in cfg.NTRIP_MODE or cfg.ESPNOW_MODE == "sender" or cfg.ENABLE_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
             data = self.gps.uart.read()
             if data:
                 # We mustn't block here, so schedule an async task to handle the data
@@ -92,8 +111,8 @@ class ESP32GPS():
                 if line.startswith(b"$PQTMEPE"):
                     line = self.gps.pqtmepe_to_gst(line)
         try:
-            if cfg.ENABLE_USB_SERIAL_CLIENT:
-                sys.stdout.write(line)
+            if cfg.ENABLE_SERIAL_CLIENT:
+                self.serial.uart.write(line)
         except Exception as e:
             log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
         try:
@@ -132,18 +151,13 @@ class ESP32GPS():
         """
         tasks = []
 
+        self.setup_serial()
         self.setup_networks()
 
         # Expect to receive gps data (from device, or ESPNOW)
         src_data = True
         if cfg.ENABLE_GPS:
-            log("Enabling GPS device.")
-            self.gps = GPS(baudrate=cfg.GPS_BAUD_RATE, tx=cfg.ESP32_TX_PIN, rx=cfg.ESP32_RX_PIN)
-            if hasattr(cfg, "GPS_SETUP_COMMANDS"):
-                for cmd in cfg.GPS_SETUP_COMMANDS:
-                    self.gps.write_nmea(cmd)
-            # Set up GPS read irq callback
-            self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
+            self.setup_gps()
             # sender goes with GPS device
             if hasattr(cfg, "ESPNOW_MODE") and cfg.ESPNOW_MODE == "sender":
                 log("ESPNow: sender mode.")

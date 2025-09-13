@@ -3,11 +3,13 @@ import aioespnow
 import network
 import sys
 import time
-from gps_utils import log
+from devices import Logger
 try:
     from debug import DEBUG
 except ImportError:
     DEBUG=False
+
+log = Logger.getLogger().log
 
 class Net():
 
@@ -45,7 +47,7 @@ class Net():
             mac.encode("utf-8") if isinstance(mac, str) else mac
             self.esp.add_peer(mac)
         self.espnow_connected = True
-        log("ESPNow active.")
+        log(f"ESPNow active. Peers: {self.peers}")
 
     def enable_wifi(self, ssid, key):
         """Connect to wifi if not already connected."""
@@ -62,7 +64,7 @@ class Net():
                 log("WLAN Connection failed.")
 
         if self.wifi_connected:
-            log(f"WLAN connected, SSID: {self.wlan.config('ssid')}, IP: {self.wlan.ifconfig()[0]}, channel: {self.wlan.config("channel")}")
+            log(f"WLAN connected, SSID: {self.wlan.config('ssid')}, IP: {self.wlan.ifconfig()[0]}, mac: {self.wlan.config('mac')}, channel: {self.wlan.config("channel")}")
 
 
     async def espnow_send(self, peer, msg):
