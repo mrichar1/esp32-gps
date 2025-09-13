@@ -20,6 +20,7 @@ class ESP32GPS():
         self.blue = None
         self.irq_event = asyncio.ThreadSafeFlag()
         self.espnow_event = asyncio.ThreadSafeFlag()
+        self.shutdown_event = asyncio.Event()
         self.serial = None
         self.ntrip_caster = None
         self.ntrip_server = None
@@ -168,7 +169,7 @@ class ESP32GPS():
                 log("ESPNow: sender mode.")
         elif hasattr(cfg, "ESPNOW_MODE") and cfg.ESPNOW_MODE == "receiver":
             log("ESPNow: receiver mode.")
-            tasks.append(self.espnow_reader())
+            self.tasks.append(self.espnow_reader())
         else:
             log("No GPS source available. Serial, Bluetooth and NTRIP server output will be disabled.")
             src_data = False
@@ -183,24 +184,49 @@ class ESP32GPS():
         if self.net.wifi_connected:
             if 'caster' in cfg.NTRIP_MODE:
                 self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
-                tasks.append(asyncio.create_task(self.ntrip_caster.run()))
+                self.tasks.append(asyncio.create_task(self.ntrip_caster.run()))
                 # Allow Caster to start before Server/Client
                 await asyncio.sleep(2)
             if src_data and 'server' in cfg.NTRIP_MODE:
                 self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
-                tasks.append(asyncio.create_task(self.ntrip_server.run()))
+                self.tasks.append(asyncio.create_task(self.ntrip_server.run()))
             if cfg.ENABLE_GPS and 'client' in cfg.NTRIP_MODE:
                 self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
-                tasks.append(asyncio.create_task(self.ntrip_client.run()))
-                tasks.append(self.ntrip_client_read())
+                self.tasks.append(asyncio.create_task(self.ntrip_client.run()))
+                self.tasks.append(self.ntrip_client_read())
 
-        await asyncio.gather(*tasks)
+        await self.shutdown_event.wait()
 
-        # keep the loop alive
-        while True:
-            await asyncio.sleep(1)
+    async def shutdown(self):
+        """Clean up background processes, handlers etc on exit."""
+        # Stop gps irq handling
+        if hasattr(self.gps, 'uart'):
+            self.gps.uart.irq(None)
 
+        # Stop bluetooth irq handling
+        if hasattr(self.blue, 'ble'):
+            self.blue.ble.irq(None)
+
+        # Signal ntrip_caster to cleanup
+        if hasattr(self.ntrip_caster, "cleanup"):
+            await self.ntrip_caster.cleanup()
+
+        # Clean up self
+        for task in self.tasks:
+            try:
+                task.cancel()
+            except:
+                pass
+
+        # Wait for tasks to exit
+        await asyncio.gather(*self.tasks, return_exceptions=True)
 
 if __name__ == "__main__":
     e32gps = ESP32GPS()
-    asyncio.run(e32gps.run())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(e32gps.run())
+    except KeyboardInterrupt:
+        log("Exiting...")
+        e32gps.shutdown_event.set()
+        loop.run_until_complete(e32gps.shutdown())

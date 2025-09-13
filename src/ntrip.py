@@ -183,6 +183,7 @@ class Caster():
         self.name = "Caster"
         self.bind_address = bind_address
         self.bind_port = bind_port
+        self.shutdown_event = asyncio.Event()
         self.sourcetable = sourcetable.replace("\n", "\r\n").encode() or "STR;ESP32;ESP32_GPS;RTCM 3.3;;2;GPS;;GB;51.476;0.00;0;0;;none;B;;9600;\r\n"
         self.cli_credb64 =  b64encode(cli_creds.encode('ascii')).decode().strip()
         self.srv_credb64 =  b64encode(srv_creds.encode('ascii')).decode().strip()
@@ -369,7 +370,8 @@ class Caster():
 
                 # Yield control
                 await asyncio.sleep_ms(1)
-
+        except asyncio.CancelledError:
+            await self.drop_connection(mount, s_writer, conn_type="server")
         except Exception as e:
             if DEBUG:
                 sys.print_exception(e)
@@ -478,10 +480,27 @@ class Caster():
 
     async def run(self):
         self.get_allowed_mounts()
-
+        self.tasks = []
         # Background tasks
-        asyncio.create_task(self.handle_data())
-        asyncio.create_task(self.probe_connections())
+        self.tasks.append(asyncio.create_task(self.handle_data()))
+        self.tasks.append(asyncio.create_task(self.probe_connections()))
 
         log(f"[{self.name}] Listening on {self.bind_address}:{self.bind_port}")
-        await asyncio.start_server(self.handle_connection, self.bind_address, self.bind_port)
+        server = await asyncio.start_server(self.handle_connection, self.bind_address, self.bind_port)
+
+        # Wait for shutdown signal
+        await self.shutdown_event.wait()
+        # shutdown server
+        server.close()
+        await server.wait_closed()
+
+    async def shutdown(self):
+        """Cleanup background tasks."""
+        # Clean up all background tasks
+        self.shutdown_event.set()
+        for task in self.tasks:
+            try:
+                task.cancel()
+            except:
+                pass
+        await asyncio.gather(*self.tasks, return_exceptions=True)
