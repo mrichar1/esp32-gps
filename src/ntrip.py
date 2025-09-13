@@ -198,37 +198,38 @@ class Caster():
                 self.allowed_mounts.add(line.split(b";")[1].decode())
 
     @staticmethod
-    async def send_headers(writer, content_type="text/plain", status="200"):
-        status_line = "HTTP/1.1 200 OK"
-        conn_type = "keep-alive"
-        # If True, close connection after sending headers
+    async def send_headers(writer, content_type="text/plain", status="200", client_ver=2):
+        # Start with v1 clients - Just send ICY
         close_conn = False
-        if status == "404":
-            status_line = "HTTP/1.1 404 Invalid Mountpoint\r\n\r\n"
-            conn_type = "close"
-            close_conn = True
-        elif status == "409":
-            status_line = "HTTP/1.1 409 Mountpoint Conflict\r\n\r\n"
-            conn_type = "close"
-            close_conn = True
-        elif status == "503":
-            status_line = "HTTP/1.1 503 Mountpoint Unavailable\r\n\r\n"
-            conn_type = "close"
-            close_conn = True
-        elif status == "sourcetable":
-            status_line = "SOURCETABLE 200 OK"
-            conn_type = "close"
-
-        response_headers = (
-            f"{status_line}\r\n"
-            "Server: NTRIP ESP32_GPS/2.0\r\n"
-            "Ntrip-Version: Ntrip/2.0\r\n"
-            f"Content-Type: {content_type}\r\n"
-            f"Connection: {conn_type}\r\n"
-            "\r\n"
-        ).encode()
+        response_headers = "ICY 200 OK\r\n"
+        if client_ver == 2:
+            status_line = "HTTP/1.1 200 OK"
+            conn_type = "keep-alive"
+            if status == "404":
+                status_line = "HTTP/1.1 404 Invalid Mountpoint\r\n\r\n"
+                conn_type = "close"
+                close_conn = True
+            elif status == "409":
+                status_line = "HTTP/1.1 409 Mountpoint Conflict\r\n\r\n"
+                conn_type = "close"
+                close_conn = True
+            elif status == "503":
+                status_line = "HTTP/1.1 503 Mountpoint Unavailable\r\n\r\n"
+                conn_type = "close"
+                close_conn = True
+            elif status == "sourcetable":
+                status_line = "SOURCETABLE 200 OK"
+                conn_type = "close"
+            response_headers = (
+                f"{status_line}\r\n"
+                "Server: NTRIP ESP32_GPS/2.0\r\n"
+                "Ntrip-Version: Ntrip/2.0\r\n"
+                f"Content-Type: {content_type}\r\n"
+                f"Connection: {conn_type}\r\n"
+                "\r\n"
+            )
         try:
-            writer.write(response_headers)
+            writer.write(response_headers.encode())
             await writer.drain()
         except OSError as e:
             writer.close()
@@ -238,9 +239,8 @@ class Caster():
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception as e:
-                if DEBUG:
-                    sys.print_exception(e)
+            except:
+                pass
 
     async def drop_connection(self, mount, writer, conn_type="client"):
         """Close stale connections and remove from the list."""
@@ -408,6 +408,10 @@ class Caster():
 
         # Get client's password from headers
         password = None
+        client_ver = 2
+        if not "Ntrip-Version: Ntrip/2.0" in req:
+            # v1 client
+            client_ver = 1
         for line in req.splitlines():
             if line.startswith("Authorization"):
                 password = line.split("Basic ", 1)[1]
@@ -416,7 +420,7 @@ class Caster():
             if mount == "/":
                 # Send SOURCETABLE to client, then close
                 log(f"[{self.name}] Client requested Sourcetable")
-                await self.send_headers(writer, status="sourcetable")
+                await self.send_headers(writer, status="sourcetable", client_ver=client_ver)
                 try:
                     writer.write(self.sourcetable)
                     await writer.drain()
@@ -438,10 +442,10 @@ class Caster():
                     if mount not in self.allowed_mounts:
                         # Mount not in sourcetable at all
                         status = "404"
-                    await self.send_headers(writer, status=status)
+                    await self.send_headers(writer, status=status, client_ver=client_ver)
                     return
                 log(f"[{self.name}] Client subscribed: {addr}")
-                await self.send_headers(writer, content_type="gnss/data")
+                await self.send_headers(writer, content_type="gnss/data", client_ver=client_ver)
                 self.mounts[mount]["clients"][writer] = reader
                 return
             elif method == "POST":
