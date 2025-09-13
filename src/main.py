@@ -112,7 +112,9 @@ class ESP32GPS():
                     line = self.gps.pqtmepe_to_gst(line)
         try:
             if cfg.ENABLE_SERIAL_CLIENT:
-                self.serial.uart.write(line)
+                # Only send a line if the last transmit completed - avoid buffer overflow
+                if self.serial.uart.txdone():
+                    self.serial.uart.write(line)
         except Exception as e:
             log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
         try:
