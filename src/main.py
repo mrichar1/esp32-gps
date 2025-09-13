@@ -40,7 +40,11 @@ class ESP32GPS():
         log_serial = False
         if hasattr(cfg, "LOG_TO_SERIAL") and cfg.LOG_TO_SERIAL:
             log_serial = True
-        self.serial = Serial(uart=cfg.SERIAL_UART, baudrate=cfg.SERIAL_BAUD_RATE, tx=cfg.SERIAL_TX_PIN, rx=cfg.SERIAL_RX_PIN, log_serial=log_serial)
+        try:
+            self.serial = Serial(uart=cfg.SERIAL_UART, baudrate=cfg.SERIAL_BAUD_RATE, tx=cfg.SERIAL_TX_PIN, rx=cfg.SERIAL_RX_PIN, log_serial=log_serial)
+        except AttributeError:
+            # No config options passed in
+            pass
 
 
     def setup_networks(self):
@@ -155,9 +159,13 @@ class ESP32GPS():
         """
         self.tasks = []
 
-        if self.setup_serial() and cfg.ENABLE_SERIAL_CLIENT:
-            log(f"Serial output (UART{self.serial.uart})")
-
+        # Start serial first, as logs may be redirected to it.
+        self.setup_serial()
+        if cfg.ENABLE_SERIAL_CLIENT and hasattr(self.serial, 'uart'):
+            log(f"Serial output enabled (UART{self.serial.id})")
+        else:
+            # Serial setup didn't create uart for some reason, so turn off serial logging
+            cfg.ENABLE_SERIAL_CLIENT = False
         self.setup_networks()
 
         # Expect to receive gps data (from device, or ESPNOW)

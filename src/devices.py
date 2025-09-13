@@ -108,10 +108,11 @@ class Serial():
         """Try to set up serial for GPS messages (and optionally logging)."""
         logging = Logger()
         log = Logger.getLogger().log
+        # Store the UART id as not queryable from the UART instance
+        self.id = uart
         if uart:
             try:
                 self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx)
-                log(f"Serial device (UART{uart}) enabled.")
                 if log_serial:
                     log("Redirecting logging to serial device.")
                     # Send log messages to serial output
