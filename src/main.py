@@ -176,6 +176,7 @@ class ESP32GPS():
 
         # No point enabling bluetooth if no GPS data to send
         if src_data and cfg.ENABLE_BLUETOOTH:
+            log("Enabling Bluetooth")
             self.blue = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
             self.blue.write_callback = self.esp32_write_data
