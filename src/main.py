@@ -153,7 +153,7 @@ class ESP32GPS():
         Wifi is needed for:
         a. NTRIP services (caster, server, client)
         """
-        tasks = []
+        self.tasks = []
 
         if self.setup_serial() and cfg.ENABLE_SERIAL_CLIENT:
             log(f"Serial output (UART{self.serial.uart})")
