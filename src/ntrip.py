@@ -119,7 +119,7 @@ class Client(Base):
                         await self.caster_connect()
                 except (OSError, asyncio.IncompleteReadError):
                     # Would block / timeout
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep_ms(100)
                     continue
             else:
                 # Reader not ready yet...
@@ -256,7 +256,7 @@ class Caster():
             pass
         if conn_type == "server":
             # cancel asyncio background server task
-            task = self.server_tasks.pop((mount, writer), None)
+            task = self.server_tasks.pop(mount, None)
             if task and task is not asyncio.current_task():
                 task.cancel()
                 try:
@@ -340,6 +340,10 @@ class Caster():
             while True:
                 if mount not in self.mounts or not len(conns["clients"]):
                     # No server or clients associated with this mount any more.
+                    if DEBUG:
+                        log(f"No servers or clients for mount: {mount} - exiting task.")
+                    # Delete from the list of running tasks
+                    self.server_tasks.pop(mount, None)
                     break
                 try:
                     # Max msg length for RTCM is 1023
@@ -371,26 +375,25 @@ class Caster():
                 sys.print_exception(e)
             await self.drop_connection(mount, s_writer, conn_type="server")
 
-
-
     async def handle_data(self):
         # Do nothing if no clients or servers connected
         while True:
             # Sleep unless a mount point has both client and server connections
             if not any(d.get("clients") and d.get("servers") for d in self.mounts.values()):
-                await asyncio.sleep(0.1)
+                await asyncio.sleep_ms(100)
                 continue
 
             for mount, conns in self.mounts.items():
                 # Only continue if there are clients to receive data
                 if len(conns["clients"]):
                     for s_writer, s_reader in list(conns["servers"].items()):
-                        key = (mount, s_writer)
+                        key = mount
                         if key not in self.server_tasks:
+                            if DEBUG:
+                                log(f"Starting task for mount: {mount}")
                             task = asyncio.create_task(self.server_loop(mount, conns, s_writer, s_reader))
                             self.server_tasks[key] = task
-            await asyncio.sleep(0.1)
-
+            await asyncio.sleep_ms(100)
 
 
     async def handle_connection(self, reader, writer):
