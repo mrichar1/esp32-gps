@@ -342,7 +342,7 @@ class Caster():
                 if mount not in self.mounts or not len(conns["clients"]):
                     # No server or clients associated with this mount any more.
                     if DEBUG:
-                        log(f"No servers or clients for mount: {mount} - exiting task.")
+                        log(f"Mount {mount} data streaming needs at least one each of server and client - exiting task.")
                     # Delete from the list of running tasks
                     self.server_tasks.pop(mount, None)
                     break
