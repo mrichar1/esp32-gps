@@ -17,6 +17,7 @@ class ESP32GPS():
 
     def __init__(self):
         self.net = None
+        self.blue = None
         self.irq_event = asyncio.ThreadSafeFlag()
         self.espnow_event = asyncio.ThreadSafeFlag()
         self.serial = None
@@ -153,7 +154,9 @@ class ESP32GPS():
         """
         tasks = []
 
-        self.setup_serial()
+        if self.setup_serial() and cfg.ENABLE_SERIAL_CLIENT:
+            log(f"Serial output (UART{self.serial.uart})")
+
         self.setup_networks()
 
         # Expect to receive gps data (from device, or ESPNOW)
@@ -170,7 +173,6 @@ class ESP32GPS():
             log("No GPS source available. Serial, Bluetooth and NTRIP server output will be disabled.")
             src_data = False
 
-        self.blue = None
         # No point enabling bluetooth if no GPS data to send
         if src_data and cfg.ENABLE_BLUETOOTH:
             self.blue = Blue(name=cfg.DEVICE_NAME)

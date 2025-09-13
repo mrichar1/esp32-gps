@@ -80,7 +80,7 @@ class Base():
                 log(f"[{self.name}] Connection error: {err}")
                 try:
                     self.writer.close()
-                except:
+                except OSError:
                     pass
                 # Wait before trying to reconnect
                 asyncio.sleep(3)
@@ -111,7 +111,7 @@ class Client(Base):
                         try:
                             self.writer.close()
                             await self.writer.wait_closed()
-                        except Exception as e:
+                        except OSError as e:
                             if DEBUG:
                                 sys.print_exception(e)
                             pass
@@ -159,13 +159,13 @@ class Server(Base):
                             self.writer.write(self.queue[0])
                             await self.writer.drain()
                             self.queue.popleft()
-                        except Exception as e:
+                        except OSError as e:
                             log(f"[{self.name}] Data send failed: {e}. Reconnecting...")
                             try:
                                 if self.writer:
                                     self.writer.close()
                                     await self.writer.wait_closed()
-                            except Exception:
+                            except OSError:
                                 pass
                             # Delay before reconnecting
                             await asyncio.sleep(3)
@@ -239,7 +239,7 @@ class Caster():
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except OSError:
                 pass
 
     async def drop_connection(self, mount, writer, conn_type="client"):
@@ -266,7 +266,7 @@ class Caster():
         try:
             writer.close()
             await writer.wait_closed()
-        except Exception as e:
+        except OSError as e:
             if DEBUG:
                 sys.print_exception(e)
         if conn_type == "server":
@@ -276,7 +276,7 @@ class Caster():
                     client.write("Mountpoint unavailable. Please try again later.\r\n".encode())
                     client.close()
                     await client.wait_closed()
-                except Exception as e:
+                except OSError as e:
                     # Client already gone
                     if DEBUG:
                         sys.print_exception(e)
@@ -305,10 +305,10 @@ class Caster():
                         try:
                             s_writer.close()
                             await s_writer.wait_closed()
-                        except Exception as e:
+                        except OSError as e:
                             if DEBUG:
                                 sys.print_exception(e)
-                    except Exception as e:
+                    except OSError as e:
                         if DEBUG:
                             sys.print_exception(e)
                 for c_writer, c_reader in list(conns["clients"].items()):
@@ -319,7 +319,7 @@ class Caster():
                             try:
                                 c_writer.close()
                                 await c_writer.wait_closed()
-                            except Exception as e:
+                            except OSError as e:
                                 if DEBUG:
                                     sys.print_exception(e)
                     except OSError:
@@ -327,7 +327,7 @@ class Caster():
                         try:
                             c_writer.close()
                             await c_writer.wait_closed()
-                        except Exception as e:
+                        except OSError as e:
                             if DEBUG:
                                 sys.print_exception(e)
 
@@ -467,11 +467,11 @@ class Caster():
             writer.write("HTTP/1.1 401 Invalid Username or Password\r\n\r\n".encode())
             writer.close()
             await writer.wait_closed()
-        except:
+        except OSError:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except OSError:
                 pass
         asyncio.sleep(0)
 

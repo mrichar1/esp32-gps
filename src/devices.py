@@ -111,12 +111,13 @@ class Serial():
         if uart:
             try:
                 self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx)
+                log(f"Serial device (UART{uart}) enabled.")
                 if log_serial:
+                    log("Redirecting logging to serial device.")
                     # Send log messages to serial output
                     logging.setHandler(self.SerialHandler(self.uart))
             except Exception as e:
                 log(f"ERROR: Unable to open UART ({uart}) device.. Serial output disabled.")
-
 
 
     class SerialHandler():
