@@ -1,6 +1,6 @@
 import asyncio
+from machine import UART, reset
 import sys
-from machine import UART
 from blue import Blue
 from net import Net
 import config as cfg
@@ -18,6 +18,7 @@ class ESP32GPS():
     def __init__(self):
         self.net = None
         self.blue = None
+        self.gps = None
         self.irq_event = asyncio.ThreadSafeFlag()
         self.espnow_event = asyncio.ThreadSafeFlag()
         self.shutdown_event = asyncio.Event()
@@ -29,6 +30,9 @@ class ESP32GPS():
     def setup_gps(self):
         log("Enabling GPS device.")
         self.gps = GPS(uart=cfg.GPS_UART, baudrate=cfg.GPS_BAUD_RATE, tx=cfg.GPS_TX_PIN, rx=cfg.GPS_RX_PIN)
+        if not hasattr(self.gps, "uart"):
+            log("Error setting up GPS.")
+            return
         if hasattr(cfg, "GPS_SETUP_COMMANDS"):
             for cmd in cfg.GPS_SETUP_COMMANDS:
                 self.gps.write_nmea(cmd)
@@ -159,13 +163,16 @@ class ESP32GPS():
         """
         self.tasks = []
 
-        # Start serial first, as logs may be redirected to it.
-        self.setup_serial()
-        if cfg.ENABLE_SERIAL_CLIENT and hasattr(self.serial, 'uart'):
-            log(f"Serial output enabled (UART{self.serial.id})")
-        else:
-            # Serial setup didn't create uart for some reason, so turn off serial logging
-            cfg.ENABLE_SERIAL_CLIENT = False
+        # Start serial early, as logs may be redirected to it.
+        if cfg.ENABLE_SERIAL_CLIENT:
+            self.setup_serial()
+            if hasattr(self.serial, 'uart'):
+                log(f"Serial output enabled (UART{self.serial.id})")
+            else:
+                # Serial setup didn't create uart for some reason, so turn off serial logging
+                cfg.ENABLE_SERIAL_CLIENT = False
+
+        # Set up wifi
         self.setup_networks()
 
         # Expect to receive gps data (from device, or ESPNOW)
@@ -182,9 +189,12 @@ class ESP32GPS():
             log("No GPS source available. Serial, Bluetooth and NTRIP server output will be disabled.")
             src_data = False
 
+
         # No point enabling bluetooth if no GPS data to send
         if src_data and cfg.ENABLE_BLUETOOTH:
             log("Enabling Bluetooth")
+            if self.net.wifi_connected:
+                log("WARNING: Many ESP32 devices have insufficient RAM to run Wifi, Bluetooth and ESP32-GPS at the same time!")
             self.blue = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
             self.blue.write_callback = self.esp32_write_data
@@ -235,7 +245,15 @@ if __name__ == "__main__":
     try:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(e32gps.run())
-    except KeyboardInterrupt:
-        log("Exiting...")
+    except (KeyboardInterrupt, Exception) as e:
+        log("Exception raised - shutting down...")
+        if DEBUG:
+            sys.print_exception(e)
         e32gps.shutdown_event.set()
         loop.run_until_complete(e32gps.shutdown())
+        log("Success.")
+        # Don't reset if manually interrupted via REPL
+        if not isinstance(e, KeyboardInterrupt):
+            if hasattr(cfg, "CRASH_RESET") and cfg.CRASH_RESET:
+                log("Hard reset due to crash...")
+                reset()
