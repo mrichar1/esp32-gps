@@ -1,6 +1,7 @@
 import asyncio
 from machine import UART, reset
 import sys
+import time
 from blue import Blue
 from net import Net
 import config as cfg
@@ -214,6 +215,7 @@ class ESP32GPS():
                 self.tasks.append(asyncio.create_task(self.ntrip_client.run()))
                 self.tasks.append(self.ntrip_client_read())
 
+        # Wait for shutdown_event signal
         await self.shutdown_event.wait()
 
     async def shutdown(self):
@@ -245,15 +247,23 @@ if __name__ == "__main__":
     try:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(e32gps.run())
+
+        # The background tasks in e32gps should run forever (or raise exceptions).
+        # We only reach here if the event loop exits cleanly - i.e no background tasks.
+        log("Exited - nothing to do.")
+        log("Enable at least one long-running process in your configuration: (GPS, ESPNow Receiver, NTRIP")
+
+
     except (KeyboardInterrupt, Exception) as e:
-        log("Exception raised - shutting down...")
-        if DEBUG:
-            sys.print_exception(e)
         e32gps.shutdown_event.set()
         loop.run_until_complete(e32gps.shutdown())
-        log("Success.")
-        # Don't reset if manually interrupted via REPL
-        if not isinstance(e, KeyboardInterrupt):
+        if isinstance(e, KeyboardInterrupt):
+            log("Ctrl-C received - shutting down.")
+        else:
+            log("Unhandled exception - shutting down.")
+            sys.print_exception(e)
             if hasattr(cfg, "CRASH_RESET") and cfg.CRASH_RESET:
-                log("Hard reset due to crash...")
+                log("Hard resetting due to crash...")
+                # Delay (to prevent restart tight loop, and give time to read the exception)
+                time.sleep(5)
                 reset()

@@ -1,5 +1,8 @@
 """ Config variables - accessed as config.X in main.py"""
 
+# General configuration
+CRASH_RESET = True                  # Hard reset the esp32 device on crash.
+
 # GPS device configuration
 ENABLE_GPS = True                   # Enable GPS device for reading via UART serial.
 GPS_UART = 1                        # UART device for GPS connection
@@ -12,7 +15,7 @@ GPS_SETUP_COMMANDS = []             # List of NMEA commands (without $ and check
 PQTMEPE_TO_GGST = False             # Convert PQTMEPE messages to GGST (for accuracy info from Quectel devices)
 
 # USB serial configuration
-ENABLE_SERIAL_CLIENT = True         # Output GPS data via serial
+ENABLE_SERIAL_CLIENT = False        # Output GPS data via serial
 SERIAL_UART = 2                     # UART device for serial output
 SERIAL_TX_PIN = 3                   # Transmit pin
 SERIAL_RX_PIN = 4                   # Receive pin
