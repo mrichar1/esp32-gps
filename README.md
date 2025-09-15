@@ -11,9 +11,11 @@ Tested with ESP32 C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
 * (USB) Serial GPS (pass-through).
 * Bluetooth LE Serial GPS.
 * Rewriting of NMEA sentences on-the-fly (e.g. PQTMEPE -> GPGST accuracy sentences).
-* GPS Device Writing (RTCM corrections, Config commands).
+* GPS Device Writing (RTCM corrections, hardware setup commands).
 * NTRIP `Client` (for Rover), `Server` (for Base Station) and `Caster` (for Base stations).
 * ESPNow support for proxying GPS data between ESP32 devices.
+
+See the [Examples](EXAMPLES.md) file for various use cases and example configs.
 
 ## Device Setup
 
@@ -78,9 +80,7 @@ If your GPS device needs custom commands sent to it, these can be set by adding 
 
 ## NTRIP Support
 
-NOTE: NTRIP services require Wifi to be enabled to send/receive data from external sources. You can either set the `WIFI` config options to cause a connection to be set up, or manually set up networking in `boot.py`.
-
-**NOTE** ESP32 wifi state is preserved across soft-reboots. If you set `WIFI_SSID` to a different value than that of the current connection, the connection will be dropped and a new one established. However if you remove Wifi config options, the device may still connect to the last-known ssid. Yuo either need to manually reset the Wifi settings, or set `WIFI_SSID` to a non-existent ssid, which will result in no Wifi connection.
+**NOTE**: NTRIP services require Wifi to be enabled to send/receive data from external sources.
 
 This code provide support for `Client`, `Server` and `Caster` NTRIP modes. These can be enabled in parallel by specifying mulitple modes separated by commas for the config option `NTRIP_MODE`.
 
@@ -146,7 +146,19 @@ STR;ESP32;ESP32_GPS;RTCM3.3;;2;GLO+GAL+QZS+BDS+GPS;NONE;GBR;56.62;-3.94;0;0;NTRI
 
 NOTE: The `Caster` module can support multiple `Server` connections - each server must send data from a different mountpoint, and each mountpoint myust be specified in the `NTRIP_SOURCETABLE`. It can also support multiple clients connecting to the same or different mountpoints. However be aware of the physical limitations of ESP32 devices in terms of maximum server/client connections!
 
-## ESP-Now support
+## Wifi & Bluetooth
+
+Wifi is needed to run NTRIP services that connect to external sources. You can either set the `WIFI` config options to cause a connection to be set up, or manually set up networking in `boot.py`.
+
+**NOTE** ESP32 wifi state is preserved across soft-reboots. If you set `WIFI_SSID` to a different value than that of the current connection, the connection will be dropped and a new one established. However if you remove Wifi config options, the device may still connect to the last-known ssid. Yuo either need to manually reset the Wifi settings, or set `WIFI_SSID` to a non-existent ssid, which will result in no Wifi connection.
+
+
+If bluetooth is enabled, then this will appear as a Bluetooth LE serial GPS device, serving up data read from the real GPS device.
+
+**NOTE**: Many ESP32 devices have insufficient RAM to run both Bluetooth and Wifi as well as do any meaningful work. It is therefore not recommended to run Bluetooth as well as Wifi/NTRIP services.
+
+
+## ESP-Now
 
 ESP-Now can be enabled to act as a proxy and send all GPS data (RTCM and NMEA) from one device to others.
 
