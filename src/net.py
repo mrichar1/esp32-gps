@@ -33,6 +33,7 @@ class Net():
     def enable_espnow(self, peers):
         # Disable power management
         self.wlan.config(pm=network.WLAN.PM_NONE)
+        log(f"ESP-Now MAC address: {self.wlan.config('mac')}")
         self.espnow_peers = peers
         self.esp = aioespnow.AIOESPNow()
         self.esp.active(False)
@@ -47,7 +48,7 @@ class Net():
             mac.encode("utf-8") if isinstance(mac, str) else mac
             self.esp.add_peer(mac)
         self.espnow_connected = True
-        log(f"ESPNow active. Peers: {self.peers}")
+        log(f"ESP-Now active. Peers: {self.peers}")
 
     def enable_wifi(self, ssid, key):
         """Connect to wifi if not already connected."""
@@ -76,7 +77,7 @@ class Net():
 
     async def espnow_sendall(self, msg):
         """Send to all peers. Split into max 250 byte chunks."""
-        # ESPNow has a 250 byte max message size
+        # ESP-Now has a 250 byte max message size
         # FIXME: Ideally we can switch to 1024 if this PR is accepted:
         # https://github.com/micropython/micropython/pull/16737
         chunk_size = 250

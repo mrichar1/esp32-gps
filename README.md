@@ -84,7 +84,7 @@ Any data sent by the GPS shortly after sending each command will be logged. If y
 
 ## NTRIP Support
 
-**NOTE**: NTRIP services require Wifi to be enabled to send/receive data from external sources.
+**NOTE** NTRIP services require Wifi to be enabled to send/receive data from external sources.
 
 This code provide support for `Client`, `Server` and `Caster` NTRIP modes. These can be enabled in parallel by specifying mulitple modes separated by commas for the config option `NTRIP_MODE`.
 
@@ -120,7 +120,7 @@ NTRIP_CREDENTIALS = "username:password"
 NTRIP_MOUNT = "WXYZ"
 ```
 
-NOTE: If you are using a public Caster you may need to pre-register your Base station to be allowed to send data to it.
+**NOTE** If you are using a public Caster you may need to pre-register your Base station to be allowed to send data to it.
 
 ### Caster
 
@@ -148,7 +148,7 @@ STR;ESP32;ESP32_GPS;RTCM3.3;;2;GLO+GAL+QZS+BDS+GPS;NONE;GBR;56.62;-3.94;0;0;NTRI
 
 ```
 
-NOTE: The `Caster` module can support multiple `Server` connections - each server must send data from a different mountpoint, and each mountpoint myust be specified in the `NTRIP_SOURCETABLE`. It can also support multiple clients connecting to the same or different mountpoints. However be aware of the physical limitations of ESP32 devices in terms of maximum server/client connections!
+**NOTE** The `Caster` module can support multiple `Server` connections - each server must send data from a different mountpoint, and each mountpoint myust be specified in the `NTRIP_SOURCETABLE`. It can also support multiple clients connecting to the same or different mountpoints. However be aware of the physical limitations of ESP32 devices in terms of maximum server/client connections!
 
 ## Wifi & Bluetooth
 
@@ -159,7 +159,7 @@ Wifi is needed to run NTRIP services that connect to external sources. You can e
 
 If bluetooth is enabled, then this will appear as a Bluetooth LE serial GPS device, serving up data read from the real GPS device.
 
-**NOTE**: Many ESP32 devices have insufficient RAM to run both Bluetooth and Wifi as well as do any meaningful work. It is therefore not recommended to run Bluetooth as well as Wifi/NTRIP services.
+**NOTE** Many ESP32 devices have insufficient RAM to run both Bluetooth and Wifi as well as do any meaningful work. It is therefore not recommended to run Bluetooth as well as Wifi/NTRIP services.
 
 
 ## ESP-Now
@@ -181,12 +181,6 @@ The receiver will consume GPS data from the first peer in `ESPNOW_PEERS`.
 This data will then be handled as if it had come from a GPS device, so can be output via serial, bluetooth, NTRIP server etc.
 
 **NOTE** In receiver mode no data will be read from the GPS serial device, to avoid conflicting data coming from 2 sources.
-
-
-
-
-
-
 
 
 ## Testing & Performance
