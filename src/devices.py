@@ -1,5 +1,6 @@
 """Handle GPS & Serial devices via UART, and provide helper functions."""
 import sys
+import time
 try:
     from machine import UART
 except ImportError:
@@ -24,16 +25,16 @@ def nmea_checksum(sentence):
 class GPS():
 
     def __init__(self, uart=1, baudrate=115200, tx=0, rx=1):
+        logging = Logger.getLogger()
+        self.log = logging.log
         self.utc_time = "00:00:00"
         try:
             self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx)
         except Exception as e:
-            sys.print_exception(e)
-        logging = Logger.getLogger()
-        self.log = logging.log
+            self.log(f"ERROR: Unable to open UART ({uart}) device. No GPS device enabled.")
 
 
-    def write_nmea(self, msg):
+    def write_nmea(self, msg, resp_prefix=""):
         """Write NMEA sentence to the GPS (adding $ and checksum)."""
         msg =msg.lstrip("$")
         if not "*" in msg:
@@ -41,6 +42,15 @@ class GPS():
             msg = f"{msg}*{chksum}"
         self.log(f"Sent GPS Cmd: {msg}")
         self.uart.write(f"${msg}\r\n")
+        start = time.ticks_ms()
+        # Read back any GPS responses for 200ms after write
+        while time.ticks_diff(time.ticks_ms(), start) < 200:
+            if self.uart.any():
+                resp = self.uart.read(self.uart.any())
+                if resp and resp.startswith(resp_prefix):
+                    self.log(f"GPS Response: {resp.decode()}")
+            else:
+                time.sleep_ms(5)
 
     def pqtmepe_to_gst(self, pqtmepe):
         """

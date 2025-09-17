@@ -14,6 +14,7 @@ except ImportError:
 
 log = Logger.getLogger().log
 
+
 class ESP32GPS():
 
     def __init__(self):
@@ -30,21 +31,24 @@ class ESP32GPS():
 
     def setup_gps(self):
         log("Enabling GPS device.")
-        self.gps = GPS(uart=cfg.GPS_UART, baudrate=cfg.GPS_BAUD_RATE, tx=cfg.GPS_TX_PIN, rx=cfg.GPS_RX_PIN)
-        if not hasattr(self.gps, "uart"):
-            log("Error setting up GPS.")
+        try:
+            self.gps = GPS(uart=cfg.GPS_UART, baudrate=cfg.GPS_BAUD_RATE, tx=cfg.GPS_TX_PIN, rx=cfg.GPS_RX_PIN)
+        except (AttributeError, ValueError, OSError) as e:
+            log(f"Error setting up GPS: {e}")
             return
-        if hasattr(cfg, "GPS_SETUP_COMMANDS"):
-            for cmd in cfg.GPS_SETUP_COMMANDS:
-                self.gps.write_nmea(cmd)
-        # Set up GPS read irq callback
-        self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
+        if hasattr(self.gps, "uart"):
+            if (cmds := getattr(cfg, "GPS_SETUP_COMMANDS", None)):
+                # Prefix used to filter response messages
+                prefix = getattr(cfg, "GPS_SETUP_RESPONSE_PREFIX", "")
+                for cmd in cmds:
+                    self.gps.write_nmea(cmd, prefix)
+
+            # Set up GPS read irq callback
+            self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
 
 
     def setup_serial(self):
-        log_serial = False
-        if hasattr(cfg, "LOG_TO_SERIAL") and cfg.LOG_TO_SERIAL:
-            log_serial = True
+        log_serial = getattr(cfg, "LOG_TO_SERIAL", False)
         try:
             self.serial = Serial(uart=cfg.SERIAL_UART, baudrate=cfg.SERIAL_BAUD_RATE, tx=cfg.SERIAL_TX_PIN, rx=cfg.SERIAL_RX_PIN, log_serial=log_serial)
         except AttributeError:
@@ -53,9 +57,7 @@ class ESP32GPS():
 
 
     def setup_networks(self):
-        txpower=None
-        if hasattr(cfg, "WIFI_TXPOWER"):
-            txpower = cfg.WIFI_TXPOWER
+        txpower = getattr(cfg, "WIFI_TXPOWER", None)
         self.net = Net(txpower=txpower)
         # Note: We start wifi first, as this will define the channel to be used.
         # Wifi connections also enable power management, which espnow startup will later disable.
@@ -96,7 +98,12 @@ class ESP32GPS():
     def uart_read_handler(self, u):
         """Callback to run if GPS has data ready for reading."""
         # Ignore UART unless there is an output to recv data
-        if "server" in cfg.NTRIP_MODE or cfg.ESPNOW_MODE == "sender" or cfg.ENABLE_SERIAL_CLIENT or (self.blue and self.blue.is_connected()):
+        if (
+            "server" in getattr(cfg, "NTRIP_MODE", []) or
+            getattr(cfg, "ESPNOW_MODE", None) == "sender" or
+            hasattr(cfg, "ENABLE_SERIAL_CLIENT") or
+            (self.blue and self.blue.is_connected())
+        ):
             data = self.gps.uart.read()
             if data:
                 # We mustn't block here, so schedule an async task to handle the data
@@ -165,7 +172,7 @@ class ESP32GPS():
         self.tasks = []
 
         # Start serial early, as logs may be redirected to it.
-        if cfg.ENABLE_SERIAL_CLIENT:
+        if getattr(cfg, "ENABLE_SERIAL_CLIENT", None):
             self.setup_serial()
             if hasattr(self.serial, 'uart'):
                 log(f"Serial output enabled (UART{self.serial.id})")
@@ -178,12 +185,13 @@ class ESP32GPS():
 
         # Expect to receive gps data (from device, or ESPNOW)
         src_data = True
+        espnow_mode = getattr(cfg, "ESPNOW_MODE", None)
         if cfg.ENABLE_GPS:
             self.setup_gps()
             # sender goes with GPS device
-            if hasattr(cfg, "ESPNOW_MODE") and cfg.ESPNOW_MODE == "sender":
+            if espnow_mode == "sender":
                 log("ESPNow: sender mode.")
-        elif hasattr(cfg, "ESPNOW_MODE") and cfg.ESPNOW_MODE == "receiver":
+        elif espnow_mode == "receiver":
             log("ESPNow: receiver mode.")
             self.tasks.append(self.espnow_reader())
         else:
@@ -251,8 +259,10 @@ if __name__ == "__main__":
         # The background tasks in e32gps should run forever (or raise exceptions).
         # We only reach here if the event loop exits cleanly - i.e no background tasks.
         log("Exited - nothing to do.")
-        log("Enable at least one long-running process in your configuration: (GPS, ESPNow Receiver, NTRIP")
+        log("Enable at least one long-running process in your configuration: (GPS, ESPNow Receiver, NTRIP)")
 
+        # Clean up hanging IRQ etc
+        loop.run_until_complete(e32gps.shutdown())
 
     except (KeyboardInterrupt, Exception) as e:
         e32gps.shutdown_event.set()
@@ -262,7 +272,7 @@ if __name__ == "__main__":
         else:
             log("Unhandled exception - shutting down.")
             sys.print_exception(e)
-            if hasattr(cfg, "CRASH_RESET") and cfg.CRASH_RESET:
+            if getattr(cfg, "CRASH_RESET", None):
                 log("Hard resetting due to crash...")
                 # Delay (to prevent restart tight loop, and give time to read the exception)
                 time.sleep(5)

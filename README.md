@@ -2,7 +2,7 @@
 
 Micropython code for an ESP32 device to act as an intermediate gateway for a serial GPS module and provide support for RTK/NTRIP services.
 
-Tested with ESP32 C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
+Tested with ESP32 S3 (ESP32-S3-WROOM-1-N16R8) C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
 
 ## Features
 
@@ -30,7 +30,7 @@ venv/bin/pip install -r requirements.txt
 venv/bin/esptool [--port /dev/ttyACM0] erase_flash
 
 # Install Micropython (Download from https://micropython.org/download/)
-venv/bin/esptool [--port /dev/ttyACM0] --baud 460800 write_flash 0 ESP32_MODEL-DATE-VERSION.bin
+venv/bin/esptool [--port /dev/ttyACM0] write_flash 0 ESP32_MODEL-DATE-VERSION.bin
 
 # Test access to the device
 venv/bin/rshell -p /dev/ttyACM0
@@ -38,7 +38,7 @@ venv/bin/rshell -p /dev/ttyACM0
 
 ## Configuration
 
-Example configuration is found in `config.defaults.py`. This must be copied to `src/config.py` and modified as required.
+Documentation of all configuration options is found in `config.defaults.py`. This must be copied to `src/config.py` and modified as required.
 
 ```
 # Copy default config and modify
@@ -66,17 +66,21 @@ _The default TX/RX Pins 0 and 1 can be altered in the config. Remember to connec
 
 ## Connecting
 
-You can test GPS NMEA output by doing one of the following (with either `ENABLE_BLUETOOTH` or `ENABLE_USB_SERIAL` set):
+Logs will be written to the REPL (`sys.stdout`) by default.
 
-* USB Serial output: `cat /dev/ttyACM0`, or `rshell` -> `repl` -> `ctrl-D` - look for NMEA messages.
-* Bluetooth LE: Android - connect Bluetooth device, open SW Maps or equivalent, add Bluetooth LE device by name (default is `ESP32_GPS`) and look for location data.
+Connect the REPL and press `Ctrl-D` to reboot the device. You can then check the logs for appropriate device/service startup, and any errors.
 
-You can test NTRIP `Server` & `Caster` again using SW Maps, PyGPSClient or similar GPS tool that supports NTRIP data.
+You can easily test GPS NMEA output by setting `ENABLE_BLUETOOTH = True` and the connecting to the device via Bluetooth - for example on Android or IOS using the [SW Maps](https://aviyaantech.com/swmaps/) app.
+
+You can also test NTRIP `Server` & `Caster` again using SW Maps, PyGPSClient or similar GPS tool that acts as an NTRIP client.
 
 ## GPS Module Configuration
 
-The GPS module serial connection can be enabled by setting `GPS_ENABLE = True`. This allows devices to consume data either from a GPS device, or from an ESPNow stream.
+Connection to a GPS serial module to read data is enabled by setting `GPS_ENABLE = True`. Data read from the device will then be output using one of Serial, Bluetooth or NTRIP Server (forwarding data to Caster via Wifi or ESP-Now).
+
 If your GPS device needs custom commands sent to it, these can be set by adding entries to the list in the `GPS_SETUP_COMMANDS` configuration option. These are applied prior to starting any NTRIP services or reading/writing data to/from the GPS device.
+
+Any data sent by the GPS shortly after sending each command will be logged. If your GPS device responds with an easy-to-identify prefix, you can filter out other data. For example, devices which return responses as proprietary NMEA sentences can be filtered by setting: `GPS_SETUP_RESPONSE_PREFIX = "$P"`.
 
 ## NTRIP Support
 
