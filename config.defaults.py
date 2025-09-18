@@ -38,6 +38,7 @@ ENABLE_BLUETOOTH = False            # Output via bluetooth device
 # If ESPMODE = sender, send to all peers.
 # If receiver, receive data from the first peer in the list as if it was a local GPS device.
 # ESPNOW_PEERS = [b"\xbb\xbb\xbb\xbb\xbb\xbb"] # List of mac addresses for peers.
+# ESPNOW_DISCOVER_PEERS = True      # Broadcast peer mac address, and add any recived to the list of peers
 
 # NTRIP configuration
 NTRIP_MODE = "client"               # To enable NTRIP services, comma-separated list of: client (pull NTRIP data from caster), server (upload NTRIP data to a caster), caster (read/write to servers/clients)

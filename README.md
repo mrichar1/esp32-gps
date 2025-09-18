@@ -168,6 +168,14 @@ ESP-Now can be enabled to act as a proxy and send all GPS data (RTCM and NMEA) f
 
 ESP-Now support can be enabled by setting `ESPNOW_MODE` to one of `sender`, `receiver` (or left empty to disable).
 
+ESP-Now requires peers to be explicitly defined for communication between devices. This can be done in one of 2 ways:
+
+1. Add the sender/receiver to each other's `ESPNOW_PEERS` list configuration option.
+2. Set `ESPNOW_DISCOVER_PEERS = True`. This will cause each peer to regularly broadcast it's own MAC address, and add any it sees to its peer list.
+
+**NOTE** While option 2 is more convenient, this approach uses slightly more resource (sending/receiving peer broadcasts). It will also cause issues if running multiple ESP-Now networks in the same area, as all peers seen will be added.
+
+
 ### Sender
 
 The sender will consume GPS data from a GPS module (ensure `GPS_ENABLE=True`) and send it to all `ESPNOW_PEERS`.
