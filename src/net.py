@@ -30,7 +30,7 @@ class Net():
             self.wifi_connected = True
 
 
-    def enable_espnow(self, peers):
+    def enable_espnow(self, peers=""):
         # Disable power management
         self.wlan.config(pm=network.WLAN.PM_NONE)
         log(f"ESP-Now MAC address: {self.wlan.config('mac')}")
@@ -41,14 +41,12 @@ class Net():
         self.esp.active(True)
         # Increase buffer to hold 10 messages
         self.esp.config(rxbuf=2800)
-        broadcast = b"\xff" * 6
-        self.esp.add_peer(broadcast)
         for mac in self.espnow_peers:
             # Ensure MAC is in bytes
             mac.encode("utf-8") if isinstance(mac, str) else mac
             self.esp.add_peer(mac)
         self.espnow_connected = True
-        log(f"ESP-Now active. Peers: {self.peers}")
+        log(f"ESP-Now active. Peers: {self.espnow_peers}")
 
     def enable_wifi(self, ssid, key):
         """Connect to wifi if not already connected."""
@@ -66,6 +64,24 @@ class Net():
 
         if self.wifi_connected:
             log(f"WLAN connected, SSID: {self.wlan.config('ssid')}, IP: {self.wlan.ifconfig()[0]}, mac: {self.wlan.config('mac')}, channel: {self.wlan.config("channel")}")
+
+    async def espnow_broadcast(self):
+        """Regularly announce presence to other peers via broadcast."""
+
+        broadcast = b"\xff" * 6
+        self.esp.add_peer(broadcast)
+
+        while True:
+            log("BCast")
+            self.esp.send(broadcast, "ESP32-GPS")
+            await asyncio.sleep(10)
+
+    async def espnow_find_peers(self):
+        """Wrapper around recv to look for peers on sender (which otherwise doesn't recv)"""
+
+        while True:
+            # Timeout in recv means we won't tight-loop
+            await self.espnow_recv(timeout=10000, discover_peers=True)
 
 
     async def espnow_send(self, peer, msg):
@@ -101,12 +117,22 @@ class Net():
         if i < len(data):
             self._buffer = data[i:]
 
-    async def espnow_recv(self, timeout=200):
+    async def espnow_recv(self, timeout=200, discover_peers=False):
         """Wrapper around read to handle errors."""
         try:
             # A sub-1Hz timeout is sensible for most GPS devices
             data = await asyncio.wait_for_ms(self.esp.airecv(), timeout)
-            if data and data[0] in self.espnow_peers:
+            if data:
+                # Check if data is from a known peer
+                if data[0] not in self.espnow_peers:
+                    # If the message is a 'discovery broadcast' add to peers list
+                    if discover_peers and data[0] != self.wlan.config('mac') and data[1] == b"ESP32-GPS":
+                        log(f"ESP-Now discovered peer: {data[0]}")
+                        self.espnow_peers.append(data[0])
+                        self.esp.add_peer(data[0])
+                    else:
+                        # Drop message
+                        return
                 return data[1]
         except asyncio.TimeoutError:
             return None

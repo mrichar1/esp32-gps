@@ -63,18 +63,18 @@ class ESP32GPS():
         # Note: We start wifi first, as this will define the channel to be used.
         # Wifi connections also enable power management, which espnow startup will later disable.
         # See: https://docs.micropython.org/en/latest/library/espnow.html#espnow-and-wifi-operation
-        try:
+        if ((ssid := getattr(cfg, 'WIFI_SSID', None)) and (psk := getattr(cfg, 'WIFI_PSK'))):
             self.net.enable_wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PSK)
-        except AttributeError:
-            pass
         # Start ESPNow if peers provided
-        try:
-            if cfg.ESPNOW_MODE:
-                self.net.enable_espnow(peers=cfg.ESPNOW_PEERS)
-        except AttributeError:
-            # No ESPNOW peers provided - skip activating ESPNOW
-            pass
-
+        peers = getattr(cfg, "ESPNOW_PEERS", set())
+        if (espnow_mode := getattr(cfg, "ESPNOW_MODE", None)):
+            self.net.enable_espnow(peers=peers)
+            if hasattr(cfg, "ESPNOW_DISCOVER_PEERS"):
+                # Regularly broadcast presence for peer discovery
+                self.tasks.append(asyncio.create_task(self.net.espnow_broadcast()))
+                if espnow_mode == "sender":
+                    # Read occasionally to look for peers
+                    self.tasks.append(asyncio.create_task(self.net.espnow_find_peers()))
 
     def esp32_write_data(self, value):
         """Callback to run if device is written to (BLE, Serial)"""
@@ -88,9 +88,10 @@ class ESP32GPS():
 
     async def espnow_reader(self):
         """Read from ESPNow in async loop, and send for outputting."""
+        discover_peers = getattr(cfg, "ESPNOW_DISCOVER_PEERS", False)
         while True:
             try:
-                data = await self.net.espnow_recv()
+                data = await self.net.espnow_recv(discover_peers=discover_peers)
                 if data:
                     await self.gps_data(data)
             except Exception as e:
@@ -193,7 +194,7 @@ class ESP32GPS():
                 log("ESPNow: sender mode.")
         elif espnow_mode == "receiver":
             log("ESPNow: receiver mode.")
-            self.tasks.append(self.espnow_reader())
+            self.tasks.append(asyncio.create_task(self.espnow_reader()))
         else:
             log("No GPS source available. Serial, Bluetooth and NTRIP server output will be disabled.")
             src_data = False
