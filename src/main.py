@@ -28,6 +28,7 @@ class ESP32GPS():
         self.ntrip_caster = None
         self.ntrip_server = None
         self.ntrip_client = None
+        self.tasks = []
 
     def setup_gps(self):
         log("Enabling GPS device.")
@@ -169,7 +170,6 @@ class ESP32GPS():
         Wifi is needed for:
         a. NTRIP services (caster, server, client)
         """
-        self.tasks = []
 
         # Start serial early, as logs may be redirected to it.
         if getattr(cfg, "ENABLE_SERIAL_CLIENT", None):
