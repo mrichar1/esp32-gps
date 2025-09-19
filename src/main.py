@@ -44,10 +44,6 @@ class ESP32GPS():
                 for cmd in cmds:
                     self.gps.write_nmea(cmd, prefix)
 
-            # Set up GPS read irq callback
-            self.gps.uart.irq(self.uart_read_handler, UART.IRQ_RXIDLE)
-
-
     def setup_serial(self):
         log_serial = getattr(cfg, "LOG_TO_SERIAL", False)
         try:
@@ -96,20 +92,24 @@ class ESP32GPS():
                     await self.gps_data(data)
             except Exception as e:
                 sys.print_exception(e)
+            await asyncio.sleep(0)
 
-    def uart_read_handler(self, u):
-        """Callback to run if GPS has data ready for reading."""
-        # Ignore UART unless there is an output to recv data
+    async def gps_reader(self):
+        # FIXME: Move to code where this task is instantiated
         if (
             "server" in getattr(cfg, "NTRIP_MODE", []) or
             getattr(cfg, "ESPNOW_MODE", None) == "sender" or
             hasattr(cfg, "ENABLE_SERIAL_CLIENT") or
             (self.blue and self.blue.is_connected())
         ):
-            data = self.gps.uart.read()
-            if data:
-                # We mustn't block here, so schedule an async task to handle the data
-                asyncio.get_event_loop().create_task(self.gps_data(data))
+            while True:
+                try:
+                    data = self.gps.uart.read()
+                    if data:
+                        await self.gps_data(data)
+                except Exception as e:
+                    sys.print_exception(e)
+                await asyncio.sleep_ms(0)
 
     async def gps_data(self, line):
         """Read GPS data and send to configured outputs.
@@ -120,7 +120,7 @@ class ESP32GPS():
         """
         if not line:
             return
-        isNMEA= False
+        isNMEA = False
         # Handle NMEA sentences
         if line.startswith(b"$") and line.endswith(b"\r\n"):
             isNMEA = True
@@ -135,6 +135,7 @@ class ESP32GPS():
                 # Only send a line if the last transmit completed - avoid buffer overflow
                 if self.serial.uart.txdone():
                     self.serial.uart.write(line)
+                    self.serial.uart.flush()
         except Exception as e:
             log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
         try:
@@ -142,11 +143,13 @@ class ESP32GPS():
                 self.blue.send(line)
         except Exception as e:
             log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
+
         try:
             if self.net.espnow_connected and cfg.ESPNOW_MODE == "sender":
                 await self.net.espnow_sendall(line)
         except Exception as e:
             log(f"[GPS DATA] ESPNow send exception: {sys.print_exception(e)}")
+
         try:
             # Don't sent NMEA sentences to NTRIP server
             if not isNMEA and self.ntrip_server:
@@ -154,7 +157,7 @@ class ESP32GPS():
         except Exception as e:
             log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
         # Settle
-        asyncio.sleep(0)
+        await asyncio.sleep(0)
 
     async def run(self):
         """Start various long-running async processes.
@@ -189,6 +192,7 @@ class ESP32GPS():
         espnow_mode = getattr(cfg, "ESPNOW_MODE", None)
         if cfg.ENABLE_GPS:
             self.setup_gps()
+            self.tasks.append(asyncio.create_task(self.gps_reader()))
             # sender goes with GPS device
             if espnow_mode == "sender":
                 log("ESPNow: sender mode.")

@@ -29,7 +29,7 @@ class GPS():
         self.log = logging.log
         self.utc_time = "00:00:00"
         try:
-            self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx)
+            self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx, txbuf=1024, rxbuf=1024)
         except Exception as e:
             self.log(f"ERROR: Unable to open UART ({uart}) device. No GPS device enabled.")
 
@@ -122,7 +122,7 @@ class Serial():
         self.id = uart
         if uart:
             try:
-                self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx)
+                self.uart = UART(uart,baudrate=baudrate, tx=tx, rx=rx, txbuf=1024, rxbuf=1024)
                 if log_serial:
                     log("Redirecting logging to serial device.")
                     # Send log messages to serial output
