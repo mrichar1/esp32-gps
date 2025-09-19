@@ -59,7 +59,7 @@ class ESP32GPS():
         # Note: We start wifi first, as this will define the channel to be used.
         # Wifi connections also enable power management, which espnow startup will later disable.
         # See: https://docs.micropython.org/en/latest/library/espnow.html#espnow-and-wifi-operation
-        if ((ssid := getattr(cfg, 'WIFI_SSID', None)) and (psk := getattr(cfg, 'WIFI_PSK'))):
+        if ((ssid := getattr(cfg, "WIFI_SSID", None)) and (psk := getattr(cfg, "WIFI_PSK"))):
             self.net.enable_wifi(ssid=cfg.WIFI_SSID, key=cfg.WIFI_PSK)
         # Start ESPNow if peers provided
         peers = getattr(cfg, "ESPNOW_PEERS", set())
@@ -127,7 +127,7 @@ class ESP32GPS():
             if cfg.ENABLE_GPS and cfg.PQTMEPE_TO_GGST:
                 if line.startswith(b"$GNRMC"):
                     # Extract UTC_TIME (as str) for use in GST sentence creation
-                    self.gps.utc_time = line.split(b',',2)[1].decode('UTF-8')
+                    self.gps.utc_time = line.split(b",",2)[1].decode("UTF-8")
                 if line.startswith(b"$PQTMEPE"):
                     line = self.gps.pqtmepe_to_gst(line)
         try:
@@ -178,7 +178,7 @@ class ESP32GPS():
         # Start serial early, as logs may be redirected to it.
         if getattr(cfg, "ENABLE_SERIAL_CLIENT", None):
             self.setup_serial()
-            if hasattr(self.serial, 'uart'):
+            if hasattr(self.serial, "uart"):
                 log(f"Serial output enabled (UART{self.serial.id})")
             else:
                 # Serial setup didn't create uart for some reason, so turn off serial logging
@@ -215,15 +215,15 @@ class ESP32GPS():
 
         # NTRIP needs a network connection
         if self.net.wifi_connected:
-            if 'caster' in cfg.NTRIP_MODE:
+            if "caster" in cfg.NTRIP_MODE:
                 self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_caster.run()))
                 # Allow Caster to start before Server/Client
                 await asyncio.sleep(2)
-            if src_data and 'server' in cfg.NTRIP_MODE:
+            if src_data and "server" in cfg.NTRIP_MODE:
                 self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_server.run()))
-            if cfg.ENABLE_GPS and 'client' in cfg.NTRIP_MODE:
+            if cfg.ENABLE_GPS and "client" in cfg.NTRIP_MODE:
                 self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_client.run()))
                 self.tasks.append(self.ntrip_client_read())
@@ -234,11 +234,11 @@ class ESP32GPS():
     async def shutdown(self):
         """Clean up background processes, handlers etc on exit."""
         # Stop gps irq handling
-        if hasattr(self.gps, 'uart'):
+        if hasattr(self.gps, "uart"):
             self.gps.uart.irq(None)
 
         # Stop bluetooth irq handling
-        if hasattr(self.blue, 'ble'):
+        if hasattr(self.blue, "ble"):
             self.blue.ble.irq(None)
 
         # Signal ntrip_caster to cleanup
