@@ -233,17 +233,13 @@ class ESP32GPS():
 
     async def shutdown(self):
         """Clean up background processes, handlers etc on exit."""
-        # Stop gps irq handling
-        if hasattr(self.gps, "uart"):
-            self.gps.uart.irq(None)
-
         # Stop bluetooth irq handling
         if hasattr(self.blue, "ble"):
             self.blue.ble.irq(None)
 
-        # Signal ntrip_caster to cleanup
-        if hasattr(self.ntrip_caster, "cleanup"):
-            await self.ntrip_caster.cleanup()
+        # Signal ntrip_caster to shutdown
+        if hasattr(self.ntrip_caster, "shutdown"):
+            await self.ntrip_caster.shutdown()
 
         # Clean up self
         for task in self.tasks:
