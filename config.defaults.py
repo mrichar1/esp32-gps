@@ -34,11 +34,18 @@ ENABLE_BLUETOOTH = False            # Output via bluetooth device
 # WIFI_TXPOWER = 5                  # Some boards (e.g. C3) have more stable connections with reduced txpower
 
 # ESPNow config
-# ESPNOW_MODE = ""                  # ESP Mode can be sender or receiver (or empty to disable)
+ESPNOW_MODE = ""                    # ESP Mode can be sender or receiver (or empty to disable)
 # If ESPMODE = sender, send to all peers.
 # If receiver, receive data from the first peer in the list as if it was a local GPS device.
 # ESPNOW_PEERS = [b"\xbb\xbb\xbb\xbb\xbb\xbb"] # List of mac addresses for peers.
 # ESPNOW_DISCOVER_PEERS = True      # Broadcast peer mac address, and add any recived to the list of peers
+
+ENABLE_GPS_RESET = False            # If enabled, GPS will be reset via GPIO pin
+GPS_RESET_PIN = 8                   # The GPIO pin to toggle to reset the GPS device
+GPS_RESET_HIGH = True               # If True, pull the pin high to reset. If false, pull it low
+
+ENABLE_SHELL = False                # If True, enable the remote command shell
+SHELL_PASSWORD = "esp32-gps"        # Set a password for shell access
 
 # NTRIP configuration
 NTRIP_MODE = "client"               # To enable NTRIP services, comma-separated list of: client (pull NTRIP data from caster), server (upload NTRIP data to a caster), caster (read/write to servers/clients)
