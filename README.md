@@ -14,6 +14,7 @@ Tested with ESP32 S3 (ESP32-S3-WROOM-1-N16R8) C3 Supermini devices and Quectel L
 * GPS Device Writing (RTCM corrections, hardware setup commands).
 * NTRIP `Client` (for Rover), `Server` (for Base Station) and `Caster` (for Base stations).
 * ESPNow support for proxying GPS data between ESP32 devices.
+* Remote Shell: send GPS commands, update config, reset device etc.
 
 See the [Examples](EXAMPLES.md) file for various use cases and example configs.
 
@@ -81,6 +82,23 @@ Connection to a GPS serial module to read data is enabled by setting `GPS_ENABLE
 If your GPS device needs custom commands sent to it, these can be set by adding entries to the list in the `GPS_SETUP_COMMANDS` configuration option. These are applied prior to starting any NTRIP services or reading/writing data to/from the GPS device.
 
 Any data sent by the GPS shortly after sending each command will be logged. If your GPS device responds with an easy-to-identify prefix, you can filter out other data. For example, devices which return responses as proprietary NMEA sentences can be filtered by setting: `GPS_SETUP_RESPONSE_PREFIX = "$P"`.
+
+## GPS Reset
+
+Many GPS devices have a reset pin, which can be pulled high or low to reset the device. For example, the LC29H devices require resetting after saving configuration with the `PQTMSAVEPAR` command.
+
+GPS reset can be configured by setting the following options:
+
+```
+ENABLE_GPS_RESET = True
+GPS_RESET_PIN = 8        # the ESP32 GPIO pin connected to the GPS reset pin
+GPS_RESET_HIGH = True    # If `True`, the pin will be pulled high to reset. If false, it will be pulled low.
+```
+
+Reset will occur when the device is reset using the remote shell `RESET` command.
+
+**NOTE** You may need to pull the GPIO pin using a pull-down or pull-up resistor configuration, to prevent a floating pin voltage triggering constant resets.
+
 
 ## NTRIP Support
 
@@ -190,6 +208,56 @@ This data will then be handled as if it had come from a GPS device, so can be ou
 
 **NOTE** In receiver mode no data will be read from the GPS serial device, to avoid conflicting data coming from 2 sources.
 
+## Remote Shell
+
+The Remote Shell can be enabled by setting `ENABLE_SHELL = True`. If `SHELL_PASSWORD` value is set, then the shell will prompt for the password, and exit if not correct.
+
+You can connect to the shell with `nc`, `telnet` or similar network tool. By default the shell listens on port 51716.
+
+### Shell commands
+
+Shell commands are Upper-case words, optionally followed by options:
+
+#### RESET
+
+Does a hard-reset of the device (`machine.reset()`)
+
+```
+>>> ESP32-GPS Remote Shell <<<
+> RESET
+```
+
+
+#### GPS
+
+Sends a command to the GPS device. The NMEA $ and CRC will ber added automatically.
+
+**NOTE** The config option `GPS_SETUP_RESPONSE_PREFIX` also applies here, to filter GPS responses.
+
+For example, on a Quectel LC29H GPS, the firmware version can be queried by doing:
+
+```
+>>> ESP32-GPS Remote Shell <<<
+> GPS PQTMVERNO
+$PQTMVERNO,LC29HEANR11A03S_RSA,2023/10/31,16:52:14*2B
+```
+
+#### CFG
+
+Sets a configuration value. The current in-memory config will be written to config.py, with the new value added/updated. Multiple options must be set one at a time with a new `CFG` command.
+
+**NOTE** Once the config has been updated, you may need to reset the device to use it.
+
+The syntax is `CFG KEY=val`. val can be any of int, float, string (quoted), list.
+
+**NOTE** Setting invalid config values may result in a broken config, which will need to be fixed by manually accessing the device!
+
+For example, to disable NTRIP services:
+```
+>>> ESP32-GPS Remote Shell <<<
+> CFG NTRIP_MODE=""
+Updated config: NTRIP_MODE=""
+```
 
 ## Testing & Performance
 

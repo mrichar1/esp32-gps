@@ -49,6 +49,8 @@ class GPS():
                 resp = self.uart.read(self.uart.any())
                 if resp and resp.startswith(resp_prefix):
                     self.log(f"GPS Response: {resp.decode()}")
+                    # Hand back for remote shell to return
+                    return resp
             else:
                 time.sleep_ms(5)
 

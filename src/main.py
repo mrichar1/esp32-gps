@@ -1,11 +1,13 @@
 import asyncio
-from machine import UART, reset
+from os import rename
+from machine import Pin, reset
 import sys
 import time
 from blue import Blue
 from net import Net
 import config as cfg
 from devices import GPS, Logger, Serial
+from shell import Shell
 import ntrip
 try:
     from debug import DEBUG
@@ -29,6 +31,32 @@ class ESP32GPS():
         self.ntrip_server = None
         self.ntrip_client = None
         self.tasks = []
+        self.shell_callbacks = {}
+
+    def hard_reset(self):
+        """Reset device and GPS device."""
+
+        if (
+            hasattr(cfg, "ENABLE_GPS_RESET") and
+            (pin := getattr(cfg, "GPS_RESET_PIN", None)) and
+            (mode := getattr(cfg, "GPS_RESET_MODE", "high"))
+        ):
+            reset_pin = Pin(pin, Pin.OUT)
+            # Default to resetting by going 'high'
+            reset_val = 1
+            # Otherwise, reset by going 'low'
+            if mode != "high":
+                reset_val = 0
+
+            # Sset reset value
+            reset_pin.value(reset_val)
+            time.sleep_ms(100)
+            # Revert to inverse of reset value
+            reset_pin.value(not reset_val)
+
+        # Reset esp32 device
+        reset()
+
 
     def setup_gps(self):
         log("Enabling GPS device.")
@@ -159,6 +187,46 @@ class ESP32GPS():
         # Settle
         await asyncio.sleep(0)
 
+    def setup_shell_callbacks(self):
+        for cmd in ['CFG', 'GPS', 'RESET']:
+            self.shell_callbacks[cmd] = getattr(self, f"cb_{cmd}")
+
+    # Callback functions for shell remote commands
+    def cb_CFG(self, opts):
+        """Update config.py on the device."""
+        try:
+            key, val = opts.split('=')
+            # Remove whitespace from cfg args
+            key = key.strip()
+            # Try to convert the value string into a python object
+            val = eval(val.strip())
+        except ValueError as e:
+            return(f"Invalid config. Syntax: CFG KEY=val (strings must be quoted). {e}")
+        # Get all current config attrs, and add/update this one
+        conf_dict = { k: getattr(cfg, k) for k in dir(cfg) if k.isupper() }
+        conf_dict[key] = val
+        try:
+            # Write a temporary config file, then replace original
+            with open("config.py.tmp", "w") as conf_f:
+                for k, v in conf_dict.items():
+                    conf_f.write(f"{k} = {repr(v)}\n")
+            rename("config.py.tmp", "config.py")
+            return(f"Updated config: {key}={repr(val)}")
+        except OSError as e:
+            return(f"Unable to save config to file: {e}")
+
+    def cb_GPS(self, opts):
+        """Write a command to the GPS device."""
+        if hasattr(self.gps, "uart"):
+            # Prefix used to filter response messages
+            prefix = getattr(cfg, "GPS_SETUP_RESPONSE_PREFIX", "")
+            # Return the GPS response output
+            return self.gps.write_nmea(opts, prefix)
+
+    def cb_RESET(self, opts):
+        """Hard reset the device."""
+        self.hard_reset()
+
     async def run(self):
         """Start various long-running async processes.
 
@@ -186,6 +254,19 @@ class ESP32GPS():
 
         # Set up wifi
         self.setup_networks()
+
+        # Set up remote shell
+        if hasattr(cfg, "ENABLE_SHELL"):
+            self.setup_shell_callbacks()
+            kwargs = {}
+            if (addr := getattr(cfg, "SHELL_BIND_ADDRESS", None)):
+                kwargs["bind_address"] = addr
+            if (port := getattr(cfg, "SHELL_BIND_PORT", None)):
+                kwargs["bind_port"] = port
+            if (passwd := getattr(cfg, "SHELL_PASSWORD", None)):
+                kwargs["password"] = passwd
+            sh = Shell(callbacks=self.shell_callbacks, **kwargs)
+            self.tasks.append(asyncio.create_task(sh.run()))
 
         # Expect to receive gps data (from device, or ESPNOW)
         src_data = True
