@@ -6,8 +6,10 @@ import sys
 import time
 from collections import deque
 from devices import Logger
-
-DEBUG=True
+try:
+    from debug import DEBUG
+except ImportError:
+    DEBUG=False
 
 log = Logger.getLogger().log
 
@@ -64,7 +66,10 @@ class Base():
         while True:
             try:
                 log(f"[{self.name}] Connecting to {self.host}:{self.port}...")
-                self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+                self.reader, self.writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.host, self.port),
+                    10
+                )
                 self.writer.write(self.request_headers)
                 await self.writer.drain()
                 headers = await self.reader.read(1024)
@@ -76,18 +81,14 @@ class Base():
                     # Not valid login
                     raise ValueError(headers)
                 break
-            except (OSError, ValueError) as err:
+            except (OSError, ValueError, asyncio.TimeoutError) as err:
                 log(f"[{self.name}] Connection error: {err}")
                 try:
                     self.writer.close()
-                except OSError:
+                except (AttributeError, OSError):
                     pass
                 # Wait before trying to reconnect
-                asyncio.sleep(3)
-
-            # Initial login - check response
-            except OSError:
-                pass
+                await asyncio.sleep(3)
 
 class Client(Base):
 
