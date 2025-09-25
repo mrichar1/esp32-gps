@@ -33,19 +33,17 @@ class ESP32GPS():
         self.tasks = []
         self.shell_callbacks = {}
 
-    def hard_reset(self):
-        """Reset device and GPS device."""
-
+    def gps_reset(self):
         if (
             hasattr(cfg, "ENABLE_GPS_RESET") and
-            (pin := getattr(cfg, "GPS_RESET_PIN", None)) and
-            (mode := getattr(cfg, "GPS_RESET_MODE", "high"))
+            (pin := getattr(cfg, "GPS_RESET_PIN", None))
         ):
+            log(f"Resetting GPS device via pin: {pin}")
             reset_pin = Pin(pin, Pin.OUT)
             # Default to resetting by going 'high'
             reset_val = 1
             # Otherwise, reset by going 'low'
-            if mode != "high":
+            if getattr(cfg, "GPS_RESET_MODE", "high") != "high":
                 reset_val = 0
 
             # Sset reset value
@@ -54,6 +52,11 @@ class ESP32GPS():
             # Revert to inverse of reset value
             reset_pin.value(not reset_val)
 
+
+    def hard_reset(self):
+        """Reset device and GPS device."""
+
+        self.gps_reset()
         # Reset esp32 device
         reset()
 
@@ -71,6 +74,8 @@ class ESP32GPS():
                 prefix = getattr(cfg, "GPS_SETUP_RESPONSE_PREFIX", "")
                 for cmd in cmds:
                     self.gps.write_nmea(cmd, prefix)
+                if hasattr(cfg, "GPS_SETUP_COMMANDS_RESET"):
+                    self.gps_reset()
 
     def setup_serial(self):
         log_serial = getattr(cfg, "LOG_TO_SERIAL", False)
@@ -188,7 +193,7 @@ class ESP32GPS():
         await asyncio.sleep(0)
 
     def setup_shell_callbacks(self):
-        for cmd in ['CFG', 'GPS', 'RESET']:
+        for cmd in ["CFG", "GPS", "RESET", "RESETGPS"]:
             self.shell_callbacks[cmd] = getattr(self, f"cb_{cmd}")
 
     # Callback functions for shell remote commands
@@ -222,6 +227,11 @@ class ESP32GPS():
             prefix = getattr(cfg, "GPS_SETUP_RESPONSE_PREFIX", "")
             # Return the GPS response output
             return self.gps.write_nmea(opts, prefix)
+
+    def cb_RESETGPS(self, opts):
+        """Reset just the GPS device."""
+        self.gps_reset()
+        return("GPS device reset.")
 
     def cb_RESET(self, opts):
         """Hard reset the device."""

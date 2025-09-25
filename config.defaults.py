@@ -11,6 +11,10 @@ GPS_RX_PIN = 1                      # ESP32 pin - connected to GPS TX pin
 GPS_BAUD_RATE = 115200              # For LC29HEA, set 460800 - set to 115200 for most other models
 GPS_SETUP_COMMANDS = []             # List of NMEA commands (without $ and checksum) to be sent to GPS device on startup.
 GPS_SETUP_RESPONSE_PREFIX = "$P"    # When reading responses to commands, only log lines which start with this prefix ($P = proprietary NMEA)
+ENABLE_GPS_RESET = False            # If enabled, GPS will be reset via GPIO pin
+GPS_RESET_PIN = 8                   # The GPIO pin to toggle to reset the GPS device
+GPS_RESET_HIGH = True               # If True, pull the pin high to reset. If false, pull it low
+GPS_SETUP_COMMANDS_RESET = False    # Reset GPS after writing setup commands. (GPS_RESET must be enabled).
 
 # NMEA/Data configuration
 PQTMEPE_TO_GGST = False             # Convert PQTMEPE messages to GGST (for accuracy info from Quectel devices)
@@ -39,10 +43,6 @@ ESPNOW_MODE = ""                    # ESP Mode can be sender or receiver (or emp
 # If receiver, receive data from the first peer in the list as if it was a local GPS device.
 # ESPNOW_PEERS = [b"\xbb\xbb\xbb\xbb\xbb\xbb"] # List of mac addresses for peers.
 # ESPNOW_DISCOVER_PEERS = True      # Broadcast peer mac address, and add any recived to the list of peers
-
-ENABLE_GPS_RESET = False            # If enabled, GPS will be reset via GPIO pin
-GPS_RESET_PIN = 8                   # The GPIO pin to toggle to reset the GPS device
-GPS_RESET_HIGH = True               # If True, pull the pin high to reset. If false, pull it low
 
 ENABLE_SHELL = False                # If True, enable the remote command shell
 SHELL_PASSWORD = "esp32-gps"        # Set a password for shell access

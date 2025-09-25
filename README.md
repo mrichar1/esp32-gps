@@ -91,8 +91,9 @@ GPS reset can be configured by setting the following options:
 
 ```
 ENABLE_GPS_RESET = True
-GPS_RESET_PIN = 8        # the ESP32 GPIO pin connected to the GPS reset pin
-GPS_RESET_HIGH = True    # If `True`, the pin will be pulled high to reset. If false, it will be pulled low.
+GPS_RESET_PIN = 10                 # The ESP32 GPIO pin connected to the GPS reset pin
+GPS_RESET_HIGH = True              # If `True`, the pin will be pulled high to reset. If false, it will be pulled low.
+GPS_SETUP_COMMANDS_RESET = False   # Reset GPS after writing setup commands.
 ```
 
 Reset will occur when the device is reset using the remote shell `RESET` command.
@@ -220,12 +221,24 @@ Shell commands are Upper-case words, optionally followed by options:
 
 #### RESET
 
-Does a hard-reset of the device (`machine.reset()`)
+Does a hard-reset of the ESP32 and GPS devices.
 
 ```
 >>> ESP32-GPS Remote Shell <<<
 > RESET
 ```
+
+#### RESETGPS
+
+Just reset the GPS device (if `ENABLE_GPS_RESET` is enabled).
+
+```
+>>> ESP32-GPS Remote Shell <<<
+> RESETGPS
+GPS device reset.
+```
+
+
 
 
 #### GPS
