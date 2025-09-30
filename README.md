@@ -4,6 +4,9 @@ Micropython code for an ESP32 device to act as an intermediate gateway for a ser
 
 Tested with ESP32 S3 (ESP32-S3-WROOM-1-N16R8) C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
 
+![ESP32 and GPS case setup](img/case.jpg)
+![Case closeup](img/case-closeup.jpg)
+
 ## Features
 
 (Features in _italics_ are planned).
