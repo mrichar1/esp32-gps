@@ -2,10 +2,11 @@
 
 Micropython code for an ESP32 device to act as an intermediate gateway for a serial GPS module and provide support for RTK/NTRIP services.
 
-Tested with ESP32 S3 (ESP32-S3-WROOM-1-N16R8) C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
+Tested with ESP32 S3 (ESP32-S3-WROOM-1-N16R8) and C3 Supermini devices and Quectel LC29H(BS/DA/EA) GPS modules.
 
 ![ESP32 and GPS case setup](img/case.jpg)
 ![Case closeup](img/case-closeup.jpg)
+_An ESP32 C3 with external wifi antenna, connected to a Quectel LC29HDA configured as a base station. USB 5V power supplied via mains adapter or solar battery setup._
 
 ## Features
 
