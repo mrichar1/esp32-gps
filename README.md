@@ -1,4 +1,4 @@
-# EPS32 GPS
+# ESP32 GPS
 
 Micropython code for an ESP32 device to act as an intermediate gateway for a serial GPS module and provide support for RTK/NTRIP services.
 
