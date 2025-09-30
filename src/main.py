@@ -198,18 +198,22 @@ class ESP32GPS():
 
     # Callback functions for shell remote commands
     def cb_CFG(self, opts):
-        """Update config.py on the device."""
+        """Report current config or update config.py on the device."""
+        conf_dict = { k: getattr(cfg, k) for k in dir(cfg) if k.isupper() }
+        if not opts:
+            # Return current config
+            return "\n".join([f"{k}={v}" for k, v in conf_dict.items()])
+
         try:
-            key, val = opts.split('=')
+            key, val = opts.split("=")
             # Remove whitespace from cfg args
             key = key.strip()
             # Try to convert the value string into a python object
             val = eval(val.strip())
+            conf_dict[key] = val
         except ValueError as e:
             return(f"Invalid config. Syntax: CFG KEY=val (strings must be quoted). {e}")
         # Get all current config attrs, and add/update this one
-        conf_dict = { k: getattr(cfg, k) for k in dir(cfg) if k.isupper() }
-        conf_dict[key] = val
         try:
             # Write a temporary config file, then replace original
             with open("config.py.tmp", "w") as conf_f:

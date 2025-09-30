@@ -260,9 +260,13 @@ $PQTMVERNO,LC29HEANR11A03S_RSA,2023/10/31,16:52:14*2B
 
 #### CFG
 
-Sets a configuration value. The current in-memory config will be written to config.py, with the new value added/updated. Multiple options must be set one at a time with a new `CFG` command.
+Reports current configuration, or sets a configuration value. 
 
-**NOTE** Once the config has been updated, you may need to reset the device to use it.
+If run without any arguments, `CFG` will output a list of all current configuration options.
+
+f run with an argument, the current in-memory config will be written to config.py, with the new value added/updated. Multiple options must be set one at a time with multiple `CFG` commands.
+
+**NOTE** Once the config has been updated, you may need to reset the device for it to take effect.
 
 The syntax is `CFG KEY=val`. val can be any of int, float, string (quoted), list.
 
