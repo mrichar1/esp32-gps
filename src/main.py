@@ -1,14 +1,11 @@
 import asyncio
 from os import rename
 from machine import Pin, reset
-import sys
-import time
-from blue import Blue
+from sys import print_exception
+from time import sleep_ms
 from net import Net
 import config as cfg
-from devices import GPS, Logger, Serial
-from shell import Shell
-import ntrip
+from devices import Logger
 try:
     from debug import DEBUG
 except ImportError:
@@ -48,7 +45,7 @@ class ESP32GPS():
 
             # Sset reset value
             reset_pin.value(reset_val)
-            time.sleep_ms(100)
+            sleep_ms(100)
             # Revert to inverse of reset value
             reset_pin.value(not reset_val)
 
@@ -63,6 +60,7 @@ class ESP32GPS():
 
     def setup_gps(self):
         log("Enabling GPS device.")
+        from devices import GPS
         try:
             self.gps = GPS(uart=cfg.GPS_UART, baudrate=cfg.GPS_BAUD_RATE, tx=cfg.GPS_TX_PIN, rx=cfg.GPS_RX_PIN)
         except (AttributeError, ValueError, OSError) as e:
@@ -78,6 +76,7 @@ class ESP32GPS():
                     self.gps_reset()
 
     def setup_serial(self):
+        from devices import Serial
         log_serial = getattr(cfg, "LOG_TO_SERIAL", False)
         try:
             self.serial = Serial(uart=cfg.SERIAL_UART, baudrate=cfg.SERIAL_BAUD_RATE, tx=cfg.SERIAL_TX_PIN, rx=cfg.SERIAL_RX_PIN, log_serial=log_serial)
@@ -124,7 +123,7 @@ class ESP32GPS():
                 if data:
                     await self.gps_data(data)
             except Exception as e:
-                sys.print_exception(e)
+                print_exception(e)
             await asyncio.sleep(0)
 
     async def gps_reader(self):
@@ -141,7 +140,7 @@ class ESP32GPS():
                     if data:
                         await self.gps_data(data)
                 except Exception as e:
-                    sys.print_exception(e)
+                    print_exception(e)
                 await asyncio.sleep_ms(0)
 
     async def gps_data(self, line):
@@ -170,25 +169,25 @@ class ESP32GPS():
                     self.serial.uart.write(line)
                     self.serial.uart.flush()
         except Exception as e:
-            log(f"[GPS DATA] USB serial send exception: {sys.print_exception(e)}")
+            log(f"[GPS DATA] USB serial send exception: {print_exception(e)}")
         try:
             if cfg.ENABLE_BLUETOOTH and self.blue.is_connected():
                 self.blue.send(line)
         except Exception as e:
-            log(f"[GPS DATA] BT send exception: {sys.print_exception(e)}")
+            log(f"[GPS DATA] BT send exception: {print_exception(e)}")
 
         try:
             if self.net.espnow_connected and cfg.ESPNOW_MODE == "sender":
                 await self.net.espnow_sendall(line)
         except Exception as e:
-            log(f"[GPS DATA] ESPNow send exception: {sys.print_exception(e)}")
+            log(f"[GPS DATA] ESPNow send exception: {print_exception(e)}")
 
         try:
             # Don't sent NMEA sentences to NTRIP server
             if not isNMEA and self.ntrip_server:
                 await self.ntrip_server.send_data(line)
         except Exception as e:
-            log(f"[GPS DATA] NTRIP server send exception: {sys.print_exception(e)}")
+            log(f"[GPS DATA] NTRIP server send exception: {print_exception(e)}")
         # Settle
         await asyncio.sleep(0)
 
@@ -271,6 +270,7 @@ class ESP32GPS():
 
         # Set up remote shell
         if hasattr(cfg, "ENABLE_SHELL"):
+            from shell import Shell
             self.setup_shell_callbacks()
             kwargs = {}
             if (addr := getattr(cfg, "SHELL_BIND_ADDRESS", None)):
@@ -301,15 +301,16 @@ class ESP32GPS():
 
         # No point enabling bluetooth if no GPS data to send
         if src_data and cfg.ENABLE_BLUETOOTH:
+            from blue import Blue
             log("Enabling Bluetooth")
-            if self.net.wifi_connected:
-                log("WARNING: Many ESP32 devices have insufficient RAM to run Wifi, Bluetooth and ESP32-GPS at the same time!")
             self.blue = Blue(name=cfg.DEVICE_NAME)
             # Set custom BLE write callback
             self.blue.write_callback = self.esp32_write_data
 
         # NTRIP needs a network connection
         if self.net.wifi_connected:
+            if cfg.NTRIP_MODE:
+                import ntrip
             if "caster" in cfg.NTRIP_MODE:
                 self.ntrip_caster = ntrip.Caster(cfg.NTRIP_CASTER_BIND_ADDRESS, cfg.NTRIP_CASTER_BIND_PORT, cfg.NTRIP_SOURCETABLE, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_caster.run()))
@@ -367,9 +368,9 @@ if __name__ == "__main__":
             log("Ctrl-C received - shutting down.")
         else:
             log("Unhandled exception - shutting down.")
-            sys.print_exception(e)
+            print_exception(e)
             if getattr(cfg, "CRASH_RESET", None):
                 log("Hard resetting due to crash...")
                 # Delay (to prevent restart tight loop, and give time to read the exception)
-                time.sleep(5)
+                sleep_ms(5000)
                 reset()
