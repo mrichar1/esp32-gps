@@ -319,7 +319,7 @@ class ESP32GPS():
                 self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_SERVER_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_server.run()))
             if cfg.ENABLE_GPS and "client" in cfg.NTRIP_MODE:
-                self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS, cfg.NTRIP_SERVER_CREDENTIALS)
+                self.ntrip_client = ntrip.Client(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_CLIENT_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_client.run()))
                 self.tasks.append(self.ntrip_client_read())
 
