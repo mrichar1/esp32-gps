@@ -139,43 +139,28 @@ class Server(Base):
         self.request_headers = self.build_headers(method="POST", mount=self.mount)
 
     async def send_data(self, data):
-        """Push data to be sent onto the queue."""
-        self.queue.append(data)
-        self.event.set()
-        await asyncio.sleep(0)
+        """Send data to the caster."""
+        if self.writer:
+            try:
+                self.writer.write(data)
+                await self.writer.drain()
+            except OSError:
+                log(f"[{self.name}] Data send error. Closing connection...")
+                try:
+                    self.writer.close()
+                    await self.writer.wait_closed()
+                except OSError:
+                    # Ignore send failures
+                    pass
+                finally:
+                    self.writer = None
 
     async def run(self):
-        """Connect to caster, then send queued event data in a loop."""
         while True:
             await self.caster_connect()
-
-            try:
-                while True:
-                    while not self.queue:
-                        self.event.clear()
-                        await self.event.wait()
-
-                    while self.queue:
-                        try:
-                            self.writer.write(self.queue[0])
-                            await self.writer.drain()
-                            self.queue.popleft()
-                        except OSError as e:
-                            log(f"[{self.name}] Data send failed: {e}. Reconnecting...")
-                            try:
-                                if self.writer:
-                                    self.writer.close()
-                                    await self.writer.wait_closed()
-                            except OSError:
-                                pass
-                            # Delay before reconnecting
-                            await asyncio.sleep(3)
-                            # End inner loop, triggering reconnect
-                            break
-                    # yield to the event loop
-                    await asyncio.sleep(0)
-            except asyncio.CancelledError:
-                break
+            while self.writer:
+                # Long sleep while connection established (equivalent to reconnect timeout)
+                await asyncio.sleep(3)
 
 
 class Caster():
