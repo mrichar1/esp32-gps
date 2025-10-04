@@ -85,6 +85,7 @@ class Base():
                 log(f"[{self.name}] Connection error: {err}")
                 try:
                     self.writer.close()
+                    await self.writer.wait_closed()
                 except (AttributeError, OSError):
                     pass
                 # Wait before trying to reconnect
@@ -128,7 +129,6 @@ class Client(Base):
 
     async def run(self):
         await self.caster_connect()
-
 
 
 class Server(Base):
