@@ -83,7 +83,29 @@ Once a fix has been obtained and applied to the Base Station, you can switch it 
 
 The commonest option is to run the Caster and Server on the same Base Station device, using a wifi connection for Clients to connect remotely.
 
-However the Caster can also run independently, receiving data from one or more Servers hosted elsewhere.
+```
+ENABLE_GPS = True               # Also set UART, Pins, Baud as appropriate
+
+WIFI_SSID = "my_ap"
+WIFI_PSK = "my_password"
+NTRIP_MODE = "caster,server"
+NTRIP_CASTER = "127.0.0.1"  # Local 'internal' connection between server and caster
+NTRIP_PORT = 2101
+NTRIP_MOUNT = "ESP32"
+NTRIP_CASTER_BIND_ADDRESS = "0.0.0.0"
+NTRIP_CASTER_BIND_PORT = 2101
+NTRIP_CLIENT_CREDENTIALS = "c:c"
+NTRIP_SERVER_CREDENTIALS = "d:d"
+# Sourcetable map - add one STR line to authorise each mountpoint.
+# Full details at: https://software.rtcm-ntrip.org/wiki/STR
+# RTCM format protocol here: https://github.com/MichaelBeechan/RTCM3.3/blob/main/RTCM3.3.PDF
+NTRIP_SOURCETABLE = """
+STR;ESP32;ESP32_GPS;RTCM3.3;;2;GLO+GAL+QZS+BDS+GPS;NONE;GBR;56.62;-3.94;0;0;NTRIP ESP32_GPS;none;B;N;15200;ESP32_GPS
+ENDSOURCETABLE
+"""
+```
+
+However the Caster can also run independently, with no GPS device connected, receiving data from one or more Servers hosted elsewhere.
 
 ```
 ENABLE_GPS = False
@@ -101,8 +123,8 @@ NTRIP_SOURCETABLE = """
 STR;ESP32;ESP32_GPS;RTCM3.3;;2;GLO+GAL+QZS+BDS+GPS;NONE;GBR;56.62;-3.94;0;0;NTRIP ESP32_GPS;none;B;N;15200;ESP32_GPS
 ENDSOURCETABLE
 """
-NTRIP_SERVER_CREDENTIALS = "c:c"
 ```
+
 
 
 ## ESPNow
