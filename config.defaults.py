@@ -13,7 +13,7 @@ GPS_SETUP_COMMANDS = []             # List of NMEA commands (without $ and check
 GPS_SETUP_RESPONSE_PREFIX = "$P"    # When reading responses to commands, only log lines which start with this prefix ($P = proprietary NMEA)
 ENABLE_GPS_RESET = False            # If enabled, GPS will be reset via GPIO pin
 GPS_RESET_PIN = 8                   # The GPIO pin to toggle to reset the GPS device
-GPS_RESET_HIGH = True               # If True, pull the pin high to reset. If false, pull it low
+GPS_RESET_HIGH = False              # If True, pull the pin high to reset. If false, pull it low
 GPS_SETUP_COMMANDS_RESET = False    # Reset GPS after writing setup commands. (GPS_RESET must be enabled).
 
 # NMEA/Data configuration
