@@ -3,3 +3,5 @@ venv/
 env/
 *.bin
 config.py
+testconf/
+firmware/
