@@ -49,7 +49,6 @@ class ESP32GPS():
             # Revert to inverse of reset value
             reset_pin.value(not reset_val)
 
-
     def hard_reset(self):
         """Reset device and GPS device."""
 
