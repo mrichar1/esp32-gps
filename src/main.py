@@ -65,7 +65,7 @@ class ESP32GPS():
             self.gps = GPS(uart=cfg.GPS_UART, baudrate=cfg.GPS_BAUD_RATE, tx=cfg.GPS_TX_PIN, rx=cfg.GPS_RX_PIN)
         except (AttributeError, ValueError, OSError) as e:
             log(f"Error setting up GPS: {e}")
-            return
+            return False
         if hasattr(self.gps, "uart"):
             if (cmds := getattr(cfg, "GPS_SETUP_COMMANDS", None)):
                 # Prefix used to filter response messages
@@ -74,6 +74,7 @@ class ESP32GPS():
                     self.gps.write_nmea(cmd, prefix)
                 if hasattr(cfg, "GPS_SETUP_COMMANDS_RESET"):
                     self.gps_reset()
+        return True
 
     def setup_serial(self):
         from devices import Serial
@@ -283,24 +284,26 @@ class ESP32GPS():
             self.tasks.append(asyncio.create_task(sh.run()))
 
         # Expect to receive gps data (from device, or ESPNOW)
-        src_data = True
+        gps_data = False
         espnow_mode = getattr(cfg, "ESPNOW_MODE", None)
         if cfg.ENABLE_GPS:
-            self.setup_gps()
-            self.tasks.append(asyncio.create_task(self.gps_reader()))
-            # sender goes with GPS device
-            if espnow_mode == "sender":
-                log("ESPNow: sender mode.")
+            # Data is coming from serial GPS
+            gps_data = self.setup_gps()
+            if gps_data:
+                self.tasks.append(asyncio.create_task(self.gps_reader()))
+                # sender goes with GPS device
+                if espnow_mode == "sender":
+                    log("ESPNow: sender mode.")
         elif espnow_mode == "receiver":
-            log("ESPNow: receiver mode.")
-            self.tasks.append(asyncio.create_task(self.espnow_reader()))
+                # Data is coming from an ESPNow sender
+                log("ESPNow: receiver mode.")
+                gps_data = True
+                self.tasks.append(asyncio.create_task(self.espnow_reader()))
         else:
             log("No GPS source available. Serial, Bluetooth and NTRIP server output will be disabled.")
-            src_data = False
-
 
         # No point enabling bluetooth if no GPS data to send
-        if src_data and cfg.ENABLE_BLUETOOTH:
+        if gps_data and cfg.ENABLE_BLUETOOTH:
             from blue import Blue
             log("Enabling Bluetooth")
             self.blue = Blue(name=cfg.DEVICE_NAME)
@@ -316,7 +319,8 @@ class ESP32GPS():
                 self.tasks.append(asyncio.create_task(self.ntrip_caster.run()))
                 # Allow Caster to start before Server/Client
                 await asyncio.sleep(2)
-            if src_data and "server" in cfg.NTRIP_MODE:
+            # No point enabling NTRIP server if no GPS data to send
+            if gps_data and "server" in cfg.NTRIP_MODE:
                 self.ntrip_server = ntrip.Server(cfg.NTRIP_CASTER, cfg.NTRIP_PORT, cfg.NTRIP_MOUNT, cfg.NTRIP_SERVER_CREDENTIALS)
                 self.tasks.append(asyncio.create_task(self.ntrip_server.run()))
             if cfg.ENABLE_GPS and "client" in cfg.NTRIP_MODE:
