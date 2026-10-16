@@ -1,5 +1,4 @@
 import asyncio
-import aioespnow
 import network
 import sys
 import time
@@ -31,6 +30,7 @@ class Net():
 
 
     def enable_espnow(self, peers=""):
+        import aioespnow
         # Disable power management
         self.wlan.config(pm=network.WLAN.PM_NONE)
         log(f"ESP-Now MAC address: {self.wlan.config('mac')}")
