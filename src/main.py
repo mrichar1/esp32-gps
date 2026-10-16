@@ -29,6 +29,7 @@ class ESP32GPS():
         self.ntrip_client = None
         self.tasks = []
         self.shell_callbacks = {}
+        self.nmea_buffer = b""
 
     def gps_reset(self):
         if (
@@ -56,6 +57,24 @@ class ESP32GPS():
         # Reset esp32 device
         reset()
 
+    def nmea_sentences(self, line):
+        """Extract whole NMEA sentences from a stream, buffer any remaining fragments."""
+        self.nmea_buffer += line
+        *lines, self.nmea_buffer = self.nmea_buffer.split(b"\n")
+
+        if len(self.nmea_buffer) > 512:  # no newline in sight: likely garbage
+            self.nmea_buffer = b""
+
+        sentences = []
+        for line in lines:
+            start = line.rfind(b"$")
+            if start != -1 and b"*" in line:
+                try:
+                    sentences.append(line[start:].rstrip(b"\r").decode())
+                except UnicodeError:
+                    #RTCM or binary garbage
+                    continue
+        return sentences
 
     def setup_gps(self):
         log("Enabling GPS device.")
@@ -165,9 +184,13 @@ class ESP32GPS():
         try:
             if cfg.ENABLE_SERIAL_CLIENT:
                 # Only send a line if the last transmit completed - avoid buffer overflow
-                if self.serial.uart.txdone():
+                if hasattr(self.serial, "uart") and self.serial.uart.txdone():
                     self.serial.uart.write(line)
                     self.serial.uart.flush()
+                else:
+                    # Log using print to repl
+                    for sentence in self.nmea_sentences(line):
+                        print(sentence)
         except Exception as e:
             log(f"[GPS DATA] USB serial send exception: {print_exception(e)}")
         try:
@@ -261,9 +284,6 @@ class ESP32GPS():
             self.setup_serial()
             if hasattr(self.serial, "uart"):
                 log(f"Serial output enabled (UART{self.serial.id})")
-            else:
-                # Serial setup didn't create uart for some reason, so turn off serial logging
-                cfg.ENABLE_SERIAL_CLIENT = False
 
         # Set up wifi
         self.setup_networks()

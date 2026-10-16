@@ -6,6 +6,8 @@ This document lists some common use cases, along with the main/minimum config re
 
 Read data from a GPS device and output via a serial port.
 
+**NOTE** If the serial client port is not available, it will fall back to logging NMEA messages via the REPL.
+
 ```
 ENABLE_GPS = True
 GPS_UART = 1
@@ -13,12 +15,12 @@ GPS_TX_PIN = 0
 GPS_RX_PIN = 1
 GPS_BAUD_RATE = 115200
 
-ENABLE_SERIAL_CLIENT = False        # Output GPS data via serial
+ENABLE_SERIAL_CLIENT = True         # Output GPS data via serial
 SERIAL_UART = 2                     # UART device for serial output
 SERIAL_TX_PIN = 3                   # Transmit pin
 SERIAL_RX_PIN = 4                   # Receive pin
 SERIAL_BAUD_RATE = 115200           # Serial baud rate
-LOG_TO_SERIAL = False               # If True, log messages are sent over serial, rather than to sys.stdout (REPL)
+LOG_TO_SERIAL = False               # If True, log messages are sent as NMEA sentences ($PLOG) over serial, rather than to sys.stdout (REPL)
 ```
 
 ## Bluetooth GPS
